@@ -1,21 +1,36 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, Play, Pause, Square } from "lucide-react";
 import { toast } from "sonner";
 import meditationScene from "@/assets/meditation-scene.png";
+import audio5min from "@/assets/5min_audio.mp3";
+import audio10min from "@/assets/10m_audio.mp3";
+import audio15min from "@/assets/15m_audio.mp3";
+import audio20min from "@/assets/20m_audio.mp3";
 
 const Meditation = () => {
   const navigate = useNavigate();
+  const audioRef = useRef(null);
   const [selectedTime, setSelectedTime] = useState(10);
   const [timeLeft, setTimeLeft] = useState(10 * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [backgroundMusic, setBackgroundMusic] = useState(true);
-  const [musicVolume, setMusicVolume] = useState(0.3);
+  const [backgroundMusic] = useState(true);
+  const [musicVolume] = useState(0.3);
 
   const timeOptions = [5, 10, 15, 20];
+
+  const getAudioFile = (minutes) => {
+    switch (minutes) {
+      case 5: return audio5min;
+      case 10: return audio10min;
+      case 15: return audio15min;
+      case 20: return audio20min;
+      default: return audio10min;
+    }
+  };
 
   const saveSession = useCallback(() => {
     const sessions = JSON.parse(localStorage.getItem("meditation_sessions") || "[]");
@@ -38,6 +53,10 @@ const Meditation = () => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
             setIsRunning(false);
+            if (backgroundMusic && audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
             toast.success("Great job! Meditation session complete! 🧘");
             saveSession();
             return 0;
@@ -48,7 +67,15 @@ const Meditation = () => {
     }
 
     return () => clearInterval(interval);
-  }, [isRunning, timeLeft, saveSession]);
+  }, [isRunning, timeLeft, saveSession, backgroundMusic]);
+
+  // Update audio source when selected time changes
+  useEffect(() => {
+    if (audioRef.current && backgroundMusic) {
+      audioRef.current.src = getAudioFile(selectedTime);
+      audioRef.current.load();
+    }
+  }, [selectedTime, backgroundMusic]);
 
   const handleTimeSelect = (minutes) => {
     if (!isRunning) {
@@ -60,7 +87,11 @@ const Meditation = () => {
   const handlePlay = () => {
     setIsRunning(true);
     setIsPaused(false);
-    if (backgroundMusic) {
+    if (backgroundMusic && audioRef.current) {
+      audioRef.current.play().catch(error => {
+        console.error("Error playing audio:", error);
+        toast.error("Could not play background music");
+      });
       toast.info("🎵 Meditation started with background music");
     }
   };
@@ -68,14 +99,19 @@ const Meditation = () => {
   const handlePause = () => {
     setIsRunning(false);
     setIsPaused(true);
-    if (backgroundMusic) {
-      toast.info("🎵 Meditation paused - music continues");
+    if (backgroundMusic && audioRef.current) {
+      audioRef.current.pause();
+      toast.info("🎵 Meditation paused - music paused");
     }
   };
 
   const handleStop = () => {
     setIsRunning(false);
     setIsPaused(false);
+    if (backgroundMusic && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
     saveSession();
     setTimeLeft(selectedTime * 60);
     if (backgroundMusic) {
@@ -94,17 +130,14 @@ const Meditation = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 p-4">
       {/* Hidden Background Music - Auto-sync with timer */}
       {backgroundMusic && (
-        <div className="fixed -top-96 -left-96 opacity-0 pointer-events-none">
-          <iframe
-            width="1"
-            height="1"
-            src={`https://www.youtube.com/embed/a98zkXRKeCs?autoplay=${isRunning ? 1 : 0}&loop=1&playlist=a98zkXRKeCs&controls=0&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&fs=0&cc_load_policy=0&start=0&end=0&volume=30`}
-            title="Meditation Background Music"
-            frameBorder="0"
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-          />
-        </div>
+        <audio
+          ref={audioRef}
+          src={getAudioFile(selectedTime)}
+          loop
+          volume={musicVolume}
+          preload="auto"
+          className="hidden"
+        />
       )}
 
       <div className="max-w-2xl mx-auto">

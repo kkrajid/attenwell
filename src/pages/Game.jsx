@@ -15,12 +15,46 @@ const Game = () => {
   }, []);
 
   const games = [
-    { name: "Math Puzzle", icon: "🔢", type: "educational", color: "focus-study" },
-    { name: "Memory Game", icon: "🧩", type: "puzzle", color: "game" },
-    { name: "Word Game", icon: "📝", type: "educational", color: "focus-study" },
-    { name: "Drawing", icon: "🎨", type: "creative", color: "secondary" },
-    { name: "Music Maker", icon: "🎵", type: "creative", color: "meditation" },
-    { name: "Quiz Time", icon: "❓", type: "educational", color: "primary" },
+    { 
+      name: "Noise Ninjas", 
+      icon: "🎮", 
+      type: "auditory attention", 
+      color: "focus-study",
+      description: "Train selective auditory attention and filter distractions",
+      skills: ["🎧 Selective listening", "🧠 Focus under noise", "🎯 Cognitive control"]
+    },
+    { 
+      name: "Memory Match Game", 
+      icon: "🃏", 
+      type: "memory training", 
+      color: "game",
+      description: "Strengthen short-term memory and cognitive flexibility",
+      skills: ["🧠 Visual memory", "🔄 Focus switching", "📏 Attention span"]
+    },
+    { 
+      name: "Track the Ball", 
+      icon: "⚽", 
+      type: "visual tracking", 
+      color: "secondary",
+      description: "Improve concentration, visual tracking, and sustained attention",
+      skills: ["👀 Visual tracking", "🧠 Sustained attention", "🎯 Concentration accuracy"]
+    },
+    { 
+      name: "Simple Puzzle", 
+      icon: "🧩", 
+      type: "problem solving", 
+      color: "meditation",
+      description: "Improve problem-solving and planning skills",
+      skills: ["🧩 Problem-solving", "📏 Spatial reasoning", "🗂 Planning ability"]
+    },
+    { 
+      name: "Catch the Right One", 
+      icon: "🎯", 
+      type: "selective attention", 
+      color: "primary",
+      description: "Enhance selective visual attention",
+      skills: ["🎯 Target discrimination", "👁 Visual focus", "❌ Inhibition"]
+    },
   ];
 
   const handleGameClick = (gameName) => {
@@ -28,7 +62,7 @@ const Game = () => {
       toast.error("No play time available. Complete a focus session to earn play time!");
       return;
     }
-    toast.success(`Starting ${gameName}...`);
+    toast.info(`${gameName} - Coming Soon! 🚀`);
   };
 
   return (
@@ -45,7 +79,7 @@ const Game = () => {
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <h1 className="text-3xl font-bold text-blue-600">Games</h1>
+            <h1 className="text-3xl font-bold text-blue-600">Focus Training Games</h1>
           </div>
         </div>
 
@@ -74,19 +108,36 @@ const Game = () => {
         </Card>
 
         {/* Games Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {games.map((game, index) => (
             <Card
               key={game.name}
               className="cursor-pointer bg-white shadow-lg border border-gray-100 hover:shadow-xl transition-all hover:scale-105 rounded-xl"
               onClick={() => handleGameClick(game.name)}
             >
-              <CardContent className="p-6 flex flex-col items-center justify-center gap-3 text-center min-h-[160px]">
-                <div className="text-5xl mb-2">{game.icon}</div>
-                <h3 className="text-lg font-bold text-gray-800">{game.name}</h3>
-                <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-600">
-                  {game.type}
-                </span>
+              <CardContent className="p-6">
+                <div className="text-center mb-4">
+                  <div className="text-5xl mb-3">{game.icon}</div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-2">{game.name}</h3>
+                  <p className="text-sm text-gray-600 mb-3">{game.description}</p>
+                  <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">
+                    {game.type}
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">Skills Trained:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {game.skills.map((skill, skillIndex) => (
+                      <span 
+                        key={skillIndex}
+                        className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600"
+                      >
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -96,7 +147,7 @@ const Game = () => {
           <Card className="mt-6 bg-gray-50 border-dashed border-gray-200">
             <CardContent className="p-6 text-center">
               <p className="text-gray-600">
-                💡 Complete a focus session to unlock games and earn play time!
+                💡 Complete a focus session to unlock focus training games and earn play time!
               </p>
             </CardContent>
           </Card>
