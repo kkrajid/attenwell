@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,6 @@ import * as faceLandmarksDetection from "@tensorflow-models/face-landmarks-detec
 const Focus = () => {
   const navigate = useNavigate();
   const videoRef = useRef(null);
-  const streamRef = useRef(null);
   const detectionIntervalRef = useRef(null);
   const sessionSavedRef = useRef(false); // Flag to prevent duplicate saving
   const audioContextRef = useRef(null);
@@ -44,6 +43,8 @@ const Focus = () => {
   const [showNavigationWarning, setShowNavigationWarning] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
+  const [noFaceDetectedTime, setNoFaceDetectedTime] = useState(0);
+  const [lastFaceDetectionTime, setLastFaceDetectionTime] = useState(Date.now());
 
 
   // Load parent settings and initialize face detection model on component mount
@@ -244,15 +245,8 @@ const Focus = () => {
 
   const startCamera = async () => {
     try {
-      console.log("Starting camera...");
-      console.log("Navigator.mediaDevices available:", !!navigator.mediaDevices);
-      console.log("getUserMedia available:", !!navigator.mediaDevices?.getUserMedia);
-
-      // Check if getUserMedia is supported
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Camera not supported in this browser");
-      }
-
+      console.log("Starting camera with Webcam component...");
+      
       // Check if we're on HTTPS or localhost (localhost allows camera on HTTP)
       const isSecure = window.location.protocol === 'https:' ||
                        window.location.hostname === 'localhost' ||
@@ -269,39 +263,10 @@ const Focus = () => {
         console.warn("Camera may not work on non-secure connections. Consider using HTTPS or localhost.");
       }
 
-      console.log("Requesting camera permission...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        },
-        audio: false
-      });
-      console.log("Camera permission granted!");
+      // Enable camera - the Webcam component will handle the rest
+      setCameraEnabled(true);
+      console.log("Camera enabled - Webcam component will handle stream acquisition");
       
-      console.log("Camera stream obtained:", stream);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setCameraEnabled(true);
-        console.log("Camera enabled and video element updated");
-
-        // Wait for video to be ready before starting face detection
-        videoRef.current.onloadedmetadata = () => {
-          console.log("Video metadata loaded, starting face detection");
-          toast.success("Camera monitoring started 📹");
-
-          // Start face detection after video is ready
-          setTimeout(() => {
-            startFaceDetectionSimulation();
-          }, 500);
-        };
-      } else {
-        console.error("Video ref not available");
-        throw new Error("Video element not ready");
-      }
     } catch (error) {
       console.error("Camera error details:", {
         name: error.name,
@@ -348,19 +313,38 @@ const Focus = () => {
         try {
           if (!videoRef.current || !faceDetectorRef.current) return;
 
+          // Get the video element from the Webcam component
+          const videoElement = videoRef.current.video;
+          if (!videoElement) {
+            console.log("Video element not ready yet");
+            return;
+          }
+
           // Detect faces in the video
-          const faces = await faceDetectorRef.current.estimateFaces(videoRef.current, {
+          const faces = await faceDetectorRef.current.estimateFaces(videoElement, {
             flipHorizontal: false
           });
 
           const isDetected = faces && faces.length > 0;
-          setFaceDetected(isDetected);
+          const currentTime = Date.now();
+          
+          if (isDetected) {
+            // Face detected - reset counters
+            setFaceDetected(true);
+            setNoFaceDetectedTime(0);
+            setLastFaceDetectionTime(currentTime);
+          } else {
+            // No face detected - track time
+            setFaceDetected(false);
+            const timeSinceLastDetection = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
+            setNoFaceDetectedTime(timeSinceLastDetection);
+          }
 
           // Draw face landmarks on canvas if available
           if (canvasRef.current && faces.length > 0) {
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
-            const video = videoRef.current;
+            const video = videoElement;
 
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -392,12 +376,34 @@ const Focus = () => {
             });
           }
 
+          // Show warnings based on how long no face has been detected
           if (!isDetected && currentMode === "study") {
-            // Show warning if face not detected during study
-            playWarningSound();
-            toast.warning("Please position yourself in front of the camera", {
-              duration: 2000
-            });
+            const noFaceTime = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
+            
+            if (noFaceTime >= 10 && noFaceTime < 15) {
+              // First warning after 10 seconds
+              playWarningSound();
+              toast.warning("⚠️ No face detected for 10 seconds. Please position yourself in front of the camera", {
+                duration: 3000
+              });
+            } else if (noFaceTime >= 20 && noFaceTime < 25) {
+              // Second warning after 20 seconds
+              playWarningSound();
+              toast.error("🚨 No face detected for 20 seconds! Please return to your study position", {
+                duration: 4000
+              });
+            } else if (noFaceTime >= 30) {
+              // Auto-stop session after 30 seconds
+              playWarningSound();
+              toast.error("🚨 SESSION STOPPED: No face detected for 30+ seconds. Session automatically stopped.", {
+                duration: 8000
+              });
+              
+              // Stop the session automatically
+              setTimeout(() => {
+                stopSession("auto_stop_no_face");
+              }, 2000); // Give user 2 seconds to see the message
+            }
           }
         } catch (error) {
           console.error("Face detection error:", error);
@@ -416,14 +422,48 @@ const Focus = () => {
       detectionIntervalRef.current = setInterval(() => {
         // Simulate face detection (90% chance of detection)
         const isDetected = Math.random() > 0.1;
-        setFaceDetected(isDetected);
+        const currentTime = Date.now();
+        
+        if (isDetected) {
+          // Face detected - reset counters
+          setFaceDetected(true);
+          setNoFaceDetectedTime(0);
+          setLastFaceDetectionTime(currentTime);
+        } else {
+          // No face detected - track time
+          setFaceDetected(false);
+          const timeSinceLastDetection = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
+          setNoFaceDetectedTime(timeSinceLastDetection);
+        }
 
+        // Show warnings based on how long no face has been detected
         if (!isDetected && currentMode === "study") {
-          // Show warning if face not detected during study
-          playWarningSound();
-          toast.warning("Please position yourself in front of the camera", {
-            duration: 2000
-          });
+          const noFaceTime = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
+          
+          if (noFaceTime >= 10 && noFaceTime < 15) {
+            // First warning after 10 seconds
+            playWarningSound();
+            toast.warning("⚠️ No face detected for 10 seconds. Please position yourself in front of the camera", {
+              duration: 3000
+            });
+          } else if (noFaceTime >= 20 && noFaceTime < 25) {
+            // Second warning after 20 seconds
+            playWarningSound();
+            toast.error("🚨 No face detected for 20 seconds! Please return to your study position", {
+              duration: 4000
+            });
+          } else if (noFaceTime >= 30) {
+            // Auto-stop session after 30 seconds
+            playWarningSound();
+            toast.error("🚨 SESSION STOPPED: No face detected for 30+ seconds. Session automatically stopped.", {
+              duration: 8000
+            });
+            
+            // Stop the session automatically
+            setTimeout(() => {
+              stopSession("auto_stop_no_face");
+            }, 2000); // Give user 2 seconds to see the message
+          }
         }
       }, 3000); // Check every 3 seconds
     }
@@ -437,15 +477,12 @@ const Focus = () => {
         detectionIntervalRef.current = null;
       }
 
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        if (videoRef.current) {
-          videoRef.current.srcObject = null;
-        }
-        streamRef.current = null;
-        setCameraEnabled(false);
-        setFaceDetected(false);
-      }
+      // Stop camera and reset state
+      setCameraEnabled(false);
+      setFaceDetected(false);
+      
+      // The Webcam component will handle stopping the stream automatically
+      console.log("Camera stopped");
     } catch (error) {
       console.error("Error stopping camera:", error);
     }
@@ -529,8 +566,10 @@ const Focus = () => {
         sessionPlan: sessionPlan,
         timestamp: new Date().toISOString(),
         totalDuration: finalActualStudyTime + finalActualBreakTime,
-        status: isProperlyCompleted ? "completed" : "cancelled",
-        completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100)
+        status: status === "auto_stopped_no_face" ? "auto_stopped_no_face" : 
+                 isProperlyCompleted ? "completed" : "cancelled",
+        completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100),
+        cancellationReason: status === "auto_stopped_no_face" ? "No face detected for 30+ seconds" : null
       };
 
       sessions.push(sessionData);
@@ -562,7 +601,9 @@ const Focus = () => {
       }
       
       // Save session data with appropriate status
-      saveSession(reason === "manual" ? "cancelled" : "completed");
+      const sessionStatus = reason === "auto_stop_no_face" ? "auto_stopped_no_face" : 
+                           reason === "manual" ? "cancelled" : "completed";
+      saveSession(sessionStatus);
       
       // Clean up session state
       setIsRunning(false);
@@ -571,8 +612,14 @@ const Focus = () => {
       setTimeLeft(0);
       setCurrentMode("study");
       setFaceDetected(false);
+      setNoFaceDetectedTime(0);
       
-      toast.success("Session stopped and saved!");
+      // Show appropriate message based on reason
+      if (reason === "auto_stop_no_face") {
+        toast.error("Session automatically stopped due to no face detection!");
+      } else {
+        toast.success("Session stopped and saved!");
+      }
     } catch (error) {
       console.error("Error stopping session:", error);
       toast.error("Error saving session data");
@@ -1078,14 +1125,30 @@ const Focus = () => {
                 <div className="relative bg-black aspect-video">
                   {cameraEnabled ? (
                     <>
-                      <video
+                      <Webcam
                         ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
+                        audio={false}
+                        width={640}
+                        height={480}
                         className="w-full h-full object-cover"
-                        onLoadedMetadata={() => console.log("Video metadata loaded")}
-                        onError={(e) => console.error("Video error:", e)}
+                        onUserMedia={() => {
+                          console.log("Webcam user media loaded");
+                          toast.success("Camera monitoring started 📹");
+                          // Start face detection after webcam is ready
+                          setTimeout(() => {
+                            startFaceDetectionSimulation();
+                          }, 500);
+                        }}
+                        onUserMediaError={(error) => {
+                          console.error("Webcam error:", error);
+                          toast.error("Camera access failed. You can continue without monitoring.");
+                          setCameraEnabled(false);
+                        }}
+                        videoConstraints={{
+                          facingMode: 'user',
+                          width: { ideal: 640 },
+                          height: { ideal: 480 }
+                        }}
                       />
                       <canvas
                         ref={canvasRef}
@@ -1097,12 +1160,12 @@ const Focus = () => {
                         {isModelLoaded ? "AI Monitoring" : "Monitoring"}
                       </div>
                       <div className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
-                        faceDetected ? "bg-green-500 text-white" : "bg-yellow-500 text-white"
+                        faceDetected ? "bg-green-500 text-white" : noFaceDetectedTime > 20 ? "bg-red-500 text-white" : "bg-yellow-500 text-white"
                       }`}>
                         <div className={`w-2 h-2 rounded-full ${
                           faceDetected ? "bg-white" : "bg-white animate-pulse"
                         }`} />
-                        {faceDetected ? "✓ Face Detected" : "⚠ Looking for Face"}
+                        {faceDetected ? "✓ Face Detected" : noFaceDetectedTime > 0 ? `⚠ No Face ${noFaceDetectedTime}s` : "⚠ Looking for Face"}
                       </div>
                       {isModelLoaded && (
                         <div className="absolute bottom-4 left-4 bg-blue-500/80 text-white px-2 py-1 rounded text-xs">
@@ -1140,22 +1203,58 @@ const Focus = () => {
 
             {/* Face Detection Warning */}
             {!faceDetected && currentMode === "study" && (
-              <Card className="bg-yellow-50 border-yellow-200 shadow-lg animate-pulse">
+              <Card className={`shadow-lg animate-pulse ${
+                noFaceDetectedTime > 20 ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"
+              }`}>
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
-                    <div className="text-2xl">👤</div>
+                    <div className="text-2xl">{noFaceDetectedTime > 20 ? "🚨" : "👤"}</div>
                     <div className="flex-1">
-                      <h4 className="font-semibold text-yellow-800 mb-2">Face Not Detected!</h4>
-                      <p className="text-sm text-yellow-700 mb-3">
-                        Please position yourself in front of the camera for proper monitoring during study time.
+                      <h4 className={`font-semibold mb-2 ${
+                        noFaceDetectedTime > 20 ? "text-red-800" : "text-yellow-800"
+                      }`}>
+                        {noFaceDetectedTime > 20 ? "CRITICAL: No Face Detected!" : "Face Not Detected!"}
+                      </h4>
+                      <p className={`text-sm mb-3 ${
+                        noFaceDetectedTime > 20 ? "text-red-700" : "text-yellow-700"
+                      }`}>
+                        {noFaceDetectedTime > 0 
+                          ? `No face detected for ${noFaceDetectedTime} seconds. Please position yourself in front of the camera for proper monitoring during study time.`
+                          : "Please position yourself in front of the camera for proper monitoring during study time."
+                        }
                       </p>
-                      <Button 
-                        size="sm" 
-                        onClick={() => setFaceDetected(true)}
-                        className="bg-yellow-600 hover:bg-yellow-700 text-white"
-                      >
-                        I'm Here - Continue Monitoring
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          onClick={() => {
+                            setFaceDetected(true);
+                            setNoFaceDetectedTime(0);
+                            setLastFaceDetectionTime(Date.now());
+                          }}
+                          className={`${
+                            noFaceDetectedTime > 20 
+                              ? "bg-red-600 hover:bg-red-700 text-white" 
+                              : "bg-yellow-600 hover:bg-yellow-700 text-white"
+                          }`}
+                        >
+                          I'm Here - Continue Monitoring
+                        </Button>
+                        {noFaceDetectedTime > 20 && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => {
+                              setFaceDetected(true);
+                              setNoFaceDetectedTime(0);
+                              setLastFaceDetectionTime(Date.now());
+                              toast.success("Monitoring resumed - please stay in position!");
+                            }}
+                            className="border-red-300 text-red-600 hover:bg-red-50"
+                          >
+                            Resume Monitoring
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </CardContent>
