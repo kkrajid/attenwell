@@ -514,8 +514,8 @@ const Focus = () => {
       }
 
       // Stop camera and reset state
-      setCameraEnabled(false);
-      setFaceDetected(false);
+        setCameraEnabled(false);
+        setFaceDetected(false);
       
       // The Webcam component will handle stopping the stream automatically
       console.log("Camera stopped");
@@ -654,7 +654,7 @@ const Focus = () => {
       if (reason === "auto_stop_no_face") {
         toast.error("Session automatically stopped due to no face detection!");
       } else {
-        toast.success("Session stopped and saved!");
+      toast.success("Session stopped and saved!");
       }
     } catch (error) {
       console.error("Error stopping session:", error);
@@ -1284,8 +1284,8 @@ const Focus = () => {
                         }
                       </p>
                       <div className="flex gap-2">
-                        <Button 
-                          size="sm" 
+                      <Button 
+                        size="sm" 
                           onClick={() => {
                             setFaceDetected(true);
                             setNoFaceDetectedTime(0);
@@ -1296,9 +1296,9 @@ const Focus = () => {
                               ? "bg-red-600 hover:bg-red-700 text-white" 
                               : "bg-yellow-600 hover:bg-yellow-700 text-white"
                           }`}
-                        >
-                          I'm Here - Continue Monitoring
-                        </Button>
+                      >
+                        I'm Here - Continue Monitoring
+                      </Button>
                         {noFaceDetectedTime > 20 && (
                           <Button 
                             size="sm" 
