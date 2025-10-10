@@ -106,9 +106,9 @@ const Focus = () => {
     try {
       if (!audioContextRef.current) return;
 
-      // Prevent too frequent beeps (debounce)
+      // Prevent too frequent beeps (debounce) - reduced for warning sounds
       const now = Date.now();
-      if (now - lastBeepTimeRef.current < 100) return;
+      if (now - lastBeepTimeRef.current < 50) return; // Allow more frequent warning sounds
       lastBeepTimeRef.current = now;
 
       const oscillator = audioContextRef.current.createOscillator();
@@ -120,7 +120,9 @@ const Focus = () => {
       oscillator.frequency.value = frequency;
       oscillator.type = type;
 
-      gainNode.gain.setValueAtTime(0.3, audioContextRef.current.currentTime);
+      // Louder volume for warning sounds
+      const volume = type === 'square' ? 0.6 : 0.3;
+      gainNode.gain.setValueAtTime(volume, audioContextRef.current.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + duration / 1000);
 
       oscillator.start(audioContextRef.current.currentTime);
@@ -138,9 +140,10 @@ const Focus = () => {
   }, [playBeep]);
 
   const playWarningSound = useCallback(() => {
-    // Play a warning beep
-    playBeep(400, 100);
-    setTimeout(() => playBeep(400, 100), 150);
+    // Play a loud warning beep
+    playBeep(600, 200, 'square'); // Higher frequency, longer duration, square wave for more attention
+    setTimeout(() => playBeep(600, 200, 'square'), 200);
+    setTimeout(() => playBeep(800, 300, 'square'), 400); // Triple beep for urgency
   }, [playBeep]);
 
   const playPhaseChangeSound = useCallback(() => {
@@ -427,16 +430,11 @@ const Focus = () => {
                 duration: 4000
               });
             } else if (noFaceTime >= 30) {
-              // Auto-stop session after 30 seconds
+              // Continuous warning sound for 30+ seconds
               playWarningSound();
-              toast.error("🚨 SESSION STOPPED: No face detected for 30+ seconds. Session automatically stopped.", {
-                duration: 8000
+              toast.error("⚠️ CRITICAL: No face detected for 30+ seconds. Please return to your position!", {
+                duration: 2000
               });
-              
-              // Stop the session automatically
-              setTimeout(() => {
-                stopSession("auto_stop_no_face");
-              }, 2000); // Give user 2 seconds to see the message
             }
           }
         } catch (error) {
@@ -489,16 +487,11 @@ const Focus = () => {
               duration: 4000
             });
           } else if (noFaceTime >= 30) {
-            // Auto-stop session after 30 seconds
+            // Continuous warning sound for 30+ seconds
             playWarningSound();
-            toast.error("🚨 SESSION STOPPED: No face detected for 30+ seconds. Session automatically stopped.", {
-              duration: 8000
+            toast.error("⚠️ CRITICAL: No face detected for 30+ seconds. Please return to your position!", {
+              duration: 2000
             });
-            
-            // Stop the session automatically
-            setTimeout(() => {
-              stopSession("auto_stop_no_face");
-            }, 2000); // Give user 2 seconds to see the message
           }
         }
       }, 3000); // Check every 3 seconds
@@ -602,10 +595,8 @@ const Focus = () => {
         sessionPlan: sessionPlan,
         timestamp: new Date().toISOString(),
         totalDuration: finalActualStudyTime + finalActualBreakTime,
-        status: status === "auto_stopped_no_face" ? "auto_stopped_no_face" : 
-                 isProperlyCompleted ? "completed" : "cancelled",
-        completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100),
-        cancellationReason: status === "auto_stopped_no_face" ? "No face detected for 30+ seconds" : null
+        status: isProperlyCompleted ? "completed" : "cancelled",
+        completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100)
       };
 
       sessions.push(sessionData);
@@ -637,9 +628,7 @@ const Focus = () => {
       }
       
       // Save session data with appropriate status
-      const sessionStatus = reason === "auto_stop_no_face" ? "auto_stopped_no_face" : 
-                           reason === "manual" ? "cancelled" : "completed";
-      saveSession(sessionStatus);
+      saveSession(reason === "manual" ? "cancelled" : "completed");
       
       // Clean up session state
       setIsRunning(false);
@@ -650,12 +639,7 @@ const Focus = () => {
       setFaceDetected(false);
       setNoFaceDetectedTime(0);
       
-      // Show appropriate message based on reason
-      if (reason === "auto_stop_no_face") {
-        toast.error("Session automatically stopped due to no face detection!");
-      } else {
       toast.success("Session stopped and saved!");
-      }
     } catch (error) {
       console.error("Error stopping session:", error);
       toast.error("Error saving session data");
