@@ -1,17 +1,26 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Camera, CameraOff } from "lucide-react";
+import { ArrowLeft, Camera, CameraOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import Webcam from "react-webcam";
+import * as tf from "@tensorflow/tfjs";
+import * as faceLandmarksDetection from "@tensorflow-models/face-landmarks-detection";
 
 const Focus = () => {
   const navigate = useNavigate();
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  
+  const detectionIntervalRef = useRef(null);
+  const sessionSavedRef = useRef(false); // Flag to prevent duplicate saving
+  const audioContextRef = useRef(null);
+  const lastBeepTimeRef = useRef(0);
+  const faceDetectorRef = useRef(null);
+  const canvasRef = useRef(null);
+
   const [totalTimeMinutes, setTotalTimeMinutes] = useState("");
   const [parentSettings, setParentSettings] = useState({ studyTimeHours: 0.5, breakTimeHours: 0.25 });
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -29,51 +38,145 @@ const Focus = () => {
   const [totalBreakTime, setTotalBreakTime] = useState(0);
   const [actualStudyTime, setActualStudyTime] = useState(0);
   const [actualBreakTime, setActualBreakTime] = useState(0);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [completionStats, setCompletionStats] = useState(null);
+  const [isSessionPlanExpanded, setIsSessionPlanExpanded] = useState(false);
+  const [showNavigationWarning, setShowNavigationWarning] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+  const [isModelLoaded, setIsModelLoaded] = useState(false);
 
 
-  // Load parent settings on component mount
+  // Load parent settings and initialize face detection model on component mount
   useEffect(() => {
     const savedSettings = localStorage.getItem("parent_settings");
     if (savedSettings) {
       const settings = JSON.parse(savedSettings);
       setParentSettings(settings);
     }
+
+    // Initialize audio context
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Load face detection model
+    const loadFaceDetectionModel = async () => {
+      try {
+        console.log("Loading face detection model...");
+        toast.info("Loading face detection AI model...");
+        await tf.ready();
+        const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+        const detectorConfig = {
+          runtime: 'tfjs',
+          refineLandmarks: false,
+          maxFaces: 1
+        };
+        faceDetectorRef.current = await faceLandmarksDetection.createDetector(model, detectorConfig);
+        setIsModelLoaded(true);
+        console.log("Face detection model loaded successfully");
+        toast.success("Face detection model ready!");
+      } catch (error) {
+        console.error("Error loading face detection model:", error);
+        setIsModelLoaded(false);
+        toast.error("Failed to load face detection model. Using fallback detection.");
+      }
+    };
+
+    loadFaceDetectionModel();
   }, []);
+
+  // Sound/Beep functions
+  const playBeep = useCallback((frequency = 800, duration = 200, type = 'sine') => {
+    try {
+      if (!audioContextRef.current) return;
+
+      // Prevent too frequent beeps (debounce)
+      const now = Date.now();
+      if (now - lastBeepTimeRef.current < 100) return;
+      lastBeepTimeRef.current = now;
+
+      const oscillator = audioContextRef.current.createOscillator();
+      const gainNode = audioContextRef.current.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContextRef.current.destination);
+
+      oscillator.frequency.value = frequency;
+      oscillator.type = type;
+
+      gainNode.gain.setValueAtTime(0.3, audioContextRef.current.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + duration / 1000);
+
+      oscillator.start(audioContextRef.current.currentTime);
+      oscillator.stop(audioContextRef.current.currentTime + duration / 1000);
+    } catch (error) {
+      console.error("Error playing beep:", error);
+    }
+  }, []);
+
+  const playSuccessSound = useCallback(() => {
+    // Play a pleasant success melody
+    playBeep(523, 150); // C
+    setTimeout(() => playBeep(659, 150), 150); // E
+    setTimeout(() => playBeep(784, 300), 300); // G
+  }, [playBeep]);
+
+  const playWarningSound = useCallback(() => {
+    // Play a warning beep
+    playBeep(400, 100);
+    setTimeout(() => playBeep(400, 100), 150);
+  }, [playBeep]);
+
+  const playPhaseChangeSound = useCallback(() => {
+    // Play a gentle phase change notification
+    playBeep(600, 200);
+    setTimeout(() => playBeep(800, 200), 250);
+  }, [playBeep]);
 
   const createSessionPlan = () => {
     const totalMinutes = parseInt(totalTimeMinutes);
-    
+
     // Validate input
-    if (!totalMinutes || totalMinutes <= 0 || isNaN(totalMinutes)) {
-      toast.error("Please enter a valid time (1-240 minutes)");
+    if (!totalTimeMinutes || totalTimeMinutes === "" || isNaN(totalMinutes)) {
+      toast.error("Please enter a valid time");
       return;
     }
-    
+
+    if (totalMinutes <= 0) {
+      toast.error("Time must be greater than 0 minutes");
+      return;
+    }
+
     if (totalMinutes > 240) {
       toast.error("Maximum time limit is 240 minutes (4 hours)");
       return;
     }
-    
-    if (totalMinutes < 1) {
-      toast.error("Minimum time is 1 minute");
+
+    // Validate parent settings
+    if (!parentSettings.studyTimeHours || !parentSettings.breakTimeHours) {
+      toast.error("Parent settings are not configured properly");
       return;
     }
-    const studyMinutes = parentSettings.studyTimeHours * 60;
-    const breakMinutes = parentSettings.breakTimeHours * 60;
-    const cycleMinutes = studyMinutes + breakMinutes;
-    
+
+    const studyMinutes = Math.round(parentSettings.studyTimeHours * 60);
+    const breakMinutes = Math.round(parentSettings.breakTimeHours * 60);
+
+    // Check if total time is too short for even one phase
+    if (totalMinutes < Math.min(studyMinutes, breakMinutes)) {
+      toast.error(`Minimum time needed: ${Math.min(studyMinutes, breakMinutes)} minutes for one phase`);
+      return;
+    }
+
     // Create session plan
     const plan = [];
     let remainingTime = totalMinutes;
     let phaseIndex = 0;
-    
-    // Continue creating cycles until we run out of time
-    let maxPhases = Math.ceil(totalMinutes / Math.min(studyMinutes, breakMinutes)) + 10; // Safety limit
+
+    // Safety limit to prevent infinite loops
+    const maxPhases = Math.ceil(totalMinutes / Math.min(1, Math.min(studyMinutes, breakMinutes))) + 5;
     let phaseCount = 0;
-    
+
     while (remainingTime > 0 && phaseCount < maxPhases) {
       phaseCount++;
-      
+
       // Always start with study phase if there's any time left
       if (remainingTime >= studyMinutes) {
         // Add full study phase
@@ -84,17 +187,17 @@ const Focus = () => {
         });
         remainingTime -= studyMinutes;
       } else if (remainingTime > 0) {
-        // Add partial study phase
+        // Add partial study phase with at least 1 minute
         plan.push({
           type: "study",
-          duration: remainingTime,
+          duration: Math.max(1, remainingTime),
           index: phaseIndex++
         });
         remainingTime = 0;
         break; // No time left for break
       }
-      
-      // Add break phase if there's time left
+
+      // Add break phase if there's time left and it makes sense
       if (remainingTime >= breakMinutes) {
         plan.push({
           type: "break",
@@ -103,18 +206,20 @@ const Focus = () => {
         });
         remainingTime -= breakMinutes;
       } else if (remainingTime > 0) {
-        // Add partial break phase
-        plan.push({
-          type: "break",
-          duration: remainingTime,
-          index: phaseIndex++
-        });
+        // Only add partial break if it's at least 1 minute
+        if (remainingTime >= 1) {
+          plan.push({
+            type: "break",
+            duration: Math.max(1, remainingTime),
+            index: phaseIndex++
+          });
+        }
         remainingTime = 0;
       }
     }
-    
+
     if (plan.length === 0) {
-      toast.error("Time is too short for a complete session. Minimum: " + cycleMinutes + " minutes");
+      toast.error("Unable to create session plan. Please check your settings.");
       return;
     }
     
@@ -140,106 +245,198 @@ const Focus = () => {
   const startCamera = async () => {
     try {
       console.log("Starting camera...");
-      
+      console.log("Navigator.mediaDevices available:", !!navigator.mediaDevices);
+      console.log("getUserMedia available:", !!navigator.mediaDevices?.getUserMedia);
+
       // Check if getUserMedia is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera not supported in this browser");
       }
-      
+
       // Check if we're on HTTPS or localhost (localhost allows camera on HTTP)
-      const isSecure = window.location.protocol === 'https:' || 
-                       window.location.hostname === 'localhost' || 
+      const isSecure = window.location.protocol === 'https:' ||
+                       window.location.hostname === 'localhost' ||
                        window.location.hostname === '127.0.0.1' ||
                        window.location.hostname.startsWith('192.168.') ||
                        window.location.hostname.startsWith('10.') ||
                        window.location.hostname.startsWith('172.');
-      
+
+      console.log("Connection secure:", isSecure);
+      console.log("Protocol:", window.location.protocol);
+      console.log("Hostname:", window.location.hostname);
+
       if (!isSecure) {
         console.warn("Camera may not work on non-secure connections. Consider using HTTPS or localhost.");
       }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
+
+      console.log("Requesting camera permission...");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
           facingMode: 'user',
           width: { ideal: 640 },
           height: { ideal: 480 }
         },
-        audio: false 
+        audio: false
       });
+      console.log("Camera permission granted!");
       
       console.log("Camera stream obtained:", stream);
-      
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         setCameraEnabled(true);
         console.log("Camera enabled and video element updated");
-        
-        // Simulate face detection with a delay
-        setTimeout(() => {
-          setFaceDetected(true);
+
+        // Wait for video to be ready before starting face detection
+        videoRef.current.onloadedmetadata = () => {
+          console.log("Video metadata loaded, starting face detection");
           toast.success("Camera monitoring started 📹");
-        }, 1000);
-        
-        // Start face detection simulation
-        startFaceDetectionSimulation();
+
+          // Start face detection after video is ready
+          setTimeout(() => {
+            startFaceDetectionSimulation();
+          }, 500);
+        };
       } else {
         console.error("Video ref not available");
         throw new Error("Video element not ready");
       }
     } catch (error) {
-      console.error("Camera error:", error);
-      
+      console.error("Camera error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+
       // Provide specific error messages
-      if (error.name === 'NotAllowedError') {
-        toast.error("Camera permission denied. You can continue without camera monitoring.");
-        // Allow session to continue without camera
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        toast.error("❌ Camera permission denied. Click 'Continue Without Camera' or allow camera access in browser settings.");
+        console.log("Camera permission was denied by user or browser");
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        toast.error("❌ No camera found on this device. You can continue without camera monitoring.");
         setFaceDetected(true); // Simulate face detection for demo
-      } else if (error.name === 'NotFoundError') {
-        toast.error("No camera found. You can continue without camera monitoring.");
-        setFaceDetected(true); // Simulate face detection for demo
-      } else if (error.name === 'NotReadableError') {
-        toast.error("Camera is being used by another application. You can continue without camera monitoring.");
-        setFaceDetected(true); // Simulate face detection for demo
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        toast.error("❌ Camera is being used by another application. Close other apps and try again.");
+        console.log("Camera is in use by another application");
+      } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+        toast.error("❌ Camera doesn't support the requested settings. You can continue without camera.");
+        setFaceDetected(true);
+      } else if (error.message.includes('secure')) {
+        toast.error("❌ Camera requires HTTPS. Use localhost or HTTPS connection.");
+        console.log("Insecure connection - camera blocked");
       } else {
-        toast.error(`Camera error: ${error.message}. You can continue without camera monitoring.`);
-        setFaceDetected(true); // Simulate face detection for demo
+        toast.error(`❌ Camera error: ${error.message}. You can continue without camera monitoring.`);
+        console.log("Unknown camera error:", error);
       }
-      
+
       setCameraEnabled(false);
     }
   };
 
   const startFaceDetectionSimulation = () => {
-    // Simulate face detection with random intervals
-    const detectionInterval = setInterval(() => {
-      if (!cameraEnabled) {
-        clearInterval(detectionInterval);
-        return;
-      }
-      
-      // Simulate face detection (90% chance of detection)
-      const isDetected = Math.random() > 0.1;
-      setFaceDetected(isDetected);
-      
-      if (!isDetected && currentMode === "study") {
-        // Show warning if face not detected during study
-        toast.warning("Please position yourself in front of the camera", {
-          duration: 2000
-        });
-      }
-    }, 3000); // Check every 3 seconds
-    
-    // Store interval ID for cleanup
-    streamRef.current?.getTracks().forEach(track => {
-      if (track.kind === 'video') {
-        track.addEventListener('ended', () => clearInterval(detectionInterval));
-      }
-    });
+    // Clear any existing interval first
+    if (detectionIntervalRef.current) {
+      clearInterval(detectionIntervalRef.current);
+    }
+
+    // Use real face detection if model is loaded, otherwise fallback to simulation
+    if (faceDetectorRef.current && videoRef.current) {
+      console.log("Starting real-time face detection...");
+
+      const detectFaces = async () => {
+        try {
+          if (!videoRef.current || !faceDetectorRef.current) return;
+
+          // Detect faces in the video
+          const faces = await faceDetectorRef.current.estimateFaces(videoRef.current, {
+            flipHorizontal: false
+          });
+
+          const isDetected = faces && faces.length > 0;
+          setFaceDetected(isDetected);
+
+          // Draw face landmarks on canvas if available
+          if (canvasRef.current && faces.length > 0) {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            const video = videoRef.current;
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw bounding box for detected face
+            faces.forEach(face => {
+              const keypoints = face.keypoints;
+              if (keypoints && keypoints.length > 0) {
+                // Calculate bounding box
+                const xCoords = keypoints.map(kp => kp.x);
+                const yCoords = keypoints.map(kp => kp.y);
+                const minX = Math.min(...xCoords);
+                const maxX = Math.max(...xCoords);
+                const minY = Math.min(...yCoords);
+                const maxY = Math.max(...yCoords);
+
+                // Draw rectangle
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+
+                // Draw text
+                ctx.fillStyle = '#00ff00';
+                ctx.font = '16px Arial';
+                ctx.fillText('Face Detected', minX, minY - 10);
+              }
+            });
+          }
+
+          if (!isDetected && currentMode === "study") {
+            // Show warning if face not detected during study
+            playWarningSound();
+            toast.warning("Please position yourself in front of the camera", {
+              duration: 2000
+            });
+          }
+        } catch (error) {
+          console.error("Face detection error:", error);
+        }
+      };
+
+      // Run detection every 2 seconds
+      detectionIntervalRef.current = setInterval(detectFaces, 2000);
+
+      // Run first detection immediately
+      detectFaces();
+    } else {
+      console.log("Using fallback face detection simulation...");
+
+      // Fallback to simulation if model not loaded
+      detectionIntervalRef.current = setInterval(() => {
+        // Simulate face detection (90% chance of detection)
+        const isDetected = Math.random() > 0.1;
+        setFaceDetected(isDetected);
+
+        if (!isDetected && currentMode === "study") {
+          // Show warning if face not detected during study
+          playWarningSound();
+          toast.warning("Please position yourself in front of the camera", {
+            duration: 2000
+          });
+        }
+      }, 3000); // Check every 3 seconds
+    }
   };
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     try {
+      // Clear face detection interval
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+        detectionIntervalRef.current = null;
+      }
+
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         if (videoRef.current) {
@@ -252,31 +449,35 @@ const Focus = () => {
     } catch (error) {
       console.error("Error stopping camera:", error);
     }
-  };
+  }, []);
 
   const startSession = async () => {
     if (sessionPlan.length === 0) {
       toast.error("Please create a session plan first");
       return;
     }
-    
+
     try {
       // Start camera monitoring
       await startCamera();
-      
+
       // Reset all session state
+      sessionSavedRef.current = false; // Reset save flag for new session
       setIsSessionActive(true);
       setCurrentPhaseIndex(0);
       setActualStudyTime(0);
       setActualBreakTime(0);
       setSessionStartTime(Date.now());
-      
+
       // Start with first phase
       const firstPhase = sessionPlan[0];
       setCurrentMode(firstPhase.type);
       setTimeLeft(firstPhase.duration * 60); // Convert minutes to seconds
       setIsRunning(true);
-      
+
+      // Play start sound
+      playPhaseChangeSound();
+
       toast.success(`Focus session started! Phase 1 of ${sessionPlan.length} - ${firstPhase.type === "study" ? "📚 Study Time" : "🎮 Break Time"} 🚀`);
     } catch (error) {
       console.error("Error starting session:", error);
@@ -284,7 +485,71 @@ const Focus = () => {
     }
   };
 
-  const stopSession = () => {
+  const saveSession = useCallback((status = "completed", isSuddenClosure = false) => {
+    try {
+      // Prevent duplicate saving
+      if (sessionSavedRef.current) {
+        console.log("Session already saved, skipping duplicate save");
+        return;
+      }
+
+      sessionSavedRef.current = true;
+
+      const sessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
+
+      // Calculate final actual times including current phase
+      const finalActualStudyTime = actualStudyTime + (currentMode === "study" && sessionStartTime ?
+        Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
+      const finalActualBreakTime = actualBreakTime + (currentMode === "break" && sessionStartTime ?
+        Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
+
+      // Determine if session was properly completed
+      const isProperlyCompleted = status === "completed" &&
+        currentPhaseIndex >= sessionPlan.length - 1;
+
+      console.log("Session status debug:", {
+        status,
+        currentPhaseIndex,
+        totalPhases: sessionPlan.length,
+        isProperlyCompleted,
+        finalStatus: isProperlyCompleted ? "completed" : "cancelled",
+        isSuddenClosure
+      });
+
+      const sessionData = {
+        type: isSuddenClosure ? "focus_sudden_closure" : "focus",
+        studyTimeHours: parentSettings.studyTimeHours,
+        breakTimeHours: parentSettings.breakTimeHours,
+        totalStudyTime: totalStudyTime,
+        totalBreakTime: totalBreakTime,
+        actualStudyTime: finalActualStudyTime,
+        actualBreakTime: finalActualBreakTime,
+        totalPhases: sessionPlan.length,
+        completedPhases: currentPhaseIndex + 1,
+        sessionPlan: sessionPlan,
+        timestamp: new Date().toISOString(),
+        totalDuration: finalActualStudyTime + finalActualBreakTime,
+        status: isProperlyCompleted ? "completed" : "cancelled",
+        completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100)
+      };
+
+      sessions.push(sessionData);
+      localStorage.setItem("focus_sessions", JSON.stringify(sessions));
+
+      // Update available break time only for completed sessions
+      if (isProperlyCompleted) {
+        const currentBreakTime = parseInt(localStorage.getItem("available_break_time") || "0");
+        localStorage.setItem("available_break_time", (currentBreakTime + finalActualBreakTime).toString());
+      }
+
+      console.log("Session saved:", sessionData);
+    } catch (error) {
+      console.error("Error saving session:", error);
+      toast.error("Failed to save session data");
+    }
+  }, [actualStudyTime, actualBreakTime, currentMode, sessionStartTime, parentSettings, totalStudyTime, totalBreakTime, sessionPlan, currentPhaseIndex]);
+
+  const stopSession = useCallback((reason = "manual") => {
     try {
       // Calculate actual time spent in current mode
       if (sessionStartTime) {
@@ -296,8 +561,8 @@ const Focus = () => {
         }
       }
       
-      // Save session data
-      saveSession();
+      // Save session data with appropriate status
+      saveSession(reason === "manual" ? "cancelled" : "completed");
       
       // Clean up session state
       setIsRunning(false);
@@ -305,10 +570,6 @@ const Focus = () => {
       stopCamera();
       setTimeLeft(0);
       setCurrentMode("study");
-      setShowModeSwitchConfirmation(false);
-      setPendingModeSwitch(null);
-      setShowBreakReminder(false);
-      setExtendSession(false);
       setFaceDetected(false);
       
       toast.success("Session stopped and saved!");
@@ -316,32 +577,9 @@ const Focus = () => {
       console.error("Error stopping session:", error);
       toast.error("Error saving session data");
     }
-  };
+  }, [sessionStartTime, currentMode, saveSession, stopCamera]);
 
-
-  useEffect(() => {
-    let interval;
-    
-    if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prev) => {
-          const newTimeLeft = prev - 1;
-          
-          // Handle timer completion
-          if (newTimeLeft <= 0) {
-            handlePhaseComplete();
-            return 0;
-          }
-          
-          return newTimeLeft;
-        });
-      }, 1000);
-    }
-
-    return () => clearInterval(interval);
-  }, [isRunning, timeLeft, currentPhaseIndex, sessionPlan]);
-
-  const handlePhaseComplete = () => {
+  const handlePhaseComplete = useCallback(() => {
     // Record actual time spent in current phase
     if (sessionStartTime) {
       const timeSpent = Math.floor((Date.now() - sessionStartTime) / 60000);
@@ -351,7 +589,7 @@ const Focus = () => {
         setActualBreakTime(prev => prev + timeSpent);
       }
     }
-    
+
     // Check if there are more phases
     const nextPhaseIndex = currentPhaseIndex + 1;
     if (nextPhaseIndex < sessionPlan.length) {
@@ -361,71 +599,246 @@ const Focus = () => {
       setCurrentMode(nextPhase.type);
       setTimeLeft(nextPhase.duration * 60);
       setSessionStartTime(Date.now());
-      
+
+      // Play phase change sound
+      playPhaseChangeSound();
+
       const phaseType = nextPhase.type === "study" ? "📚 Study Time" : "🎮 Break Time";
       toast.success(`Phase ${nextPhaseIndex + 1} of ${sessionPlan.length} - ${phaseType} 🚀`);
     } else {
-      // All phases complete
+      // All phases complete - stop timer first to prevent re-entry
       setIsRunning(false);
-      setIsSessionActive(false);
-      stopCamera();
-      saveSession();
-      toast.success("All phases complete! Great work! 🎉");
-    }
-  };
+      console.log("All phases completed, calling stopSession with 'completed' reason");
 
-  // Cleanup camera and intervals on unmount
+      // Play success sound
+      playSuccessSound();
+
+      // Calculate final stats
+      const finalStudyTime = actualStudyTime + (currentMode === "study" ? Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
+      const finalBreakTime = actualBreakTime + (currentMode === "break" ? Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
+
+      // Use setTimeout to ensure state updates complete before stopping
+      setTimeout(() => {
+        stopSession("completed");
+
+        // Show success modal with stats
+        setCompletionStats({
+          totalPhases: sessionPlan.length,
+          studyTime: finalStudyTime,
+          breakTime: finalBreakTime,
+          totalTime: finalStudyTime + finalBreakTime
+        });
+        setShowSuccessModal(true);
+      }, 100);
+    }
+  }, [sessionStartTime, currentMode, currentPhaseIndex, sessionPlan, stopSession, actualStudyTime, actualBreakTime, playPhaseChangeSound, playSuccessSound]);
+
+  useEffect(() => {
+    let interval;
+
+    if (isRunning && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          const newTimeLeft = prev - 1;
+
+          // Play countdown beeps for last 10 seconds
+          if (newTimeLeft <= 10 && newTimeLeft > 0) {
+            if (newTimeLeft <= 3) {
+              // More urgent beep for last 3 seconds
+              playBeep(1000, 150);
+            } else {
+              // Gentle beep for 10-4 seconds
+              playBeep(600, 100);
+            }
+          }
+
+          // Handle timer completion
+          if (newTimeLeft <= 0) {
+            handlePhaseComplete();
+            return 0;
+          }
+
+          return newTimeLeft;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isRunning, timeLeft, handlePhaseComplete, playBeep]);
+
+  // Track sudden session closures
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (isSessionActive && isRunning && !sessionSavedRef.current) {
+        // Calculate exact time spent before sudden closure
+        const currentTime = Date.now();
+        const timeSpent = Math.floor((currentTime - sessionStartTime) / 1000); // seconds
+        const timeSpentMinutes = Math.floor(timeSpent / 60);
+
+        // Save sudden closure data
+        const suddenClosureData = {
+          type: "sudden_closure",
+          sessionStartTime: sessionStartTime,
+          closureTime: currentTime,
+          timeSpentSeconds: timeSpent,
+          timeSpentMinutes: timeSpentMinutes,
+          currentMode: currentMode,
+          currentPhaseIndex: currentPhaseIndex,
+          totalPhases: sessionPlan.length,
+          actualStudyTime: actualStudyTime + (currentMode === "study" ? timeSpentMinutes : 0),
+          actualBreakTime: actualBreakTime + (currentMode === "break" ? timeSpentMinutes : 0),
+          timestamp: new Date().toISOString(),
+          wasActive: true
+        };
+
+        // Save to localStorage immediately
+        try {
+          sessionSavedRef.current = true; // Mark as saved to prevent duplicates
+
+          const suddenClosures = JSON.parse(localStorage.getItem("sudden_closures") || "[]");
+          suddenClosures.push(suddenClosureData);
+          localStorage.setItem("sudden_closures", JSON.stringify(suddenClosures));
+
+          // Save as a special session record (only one entry, not duplicate)
+          const sessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
+          const sessionData = {
+            type: "focus_sudden_closure",
+            studyTimeHours: parentSettings.studyTimeHours,
+            breakTimeHours: parentSettings.breakTimeHours,
+            totalStudyTime: totalStudyTime,
+            totalBreakTime: totalBreakTime,
+            actualStudyTime: actualStudyTime + (currentMode === "study" ? timeSpentMinutes : 0),
+            actualBreakTime: actualBreakTime + (currentMode === "break" ? timeSpentMinutes : 0),
+            totalPhases: sessionPlan.length,
+            completedPhases: currentPhaseIndex + 1,
+            sessionPlan: sessionPlan,
+            timestamp: new Date().toISOString(),
+            totalDuration: timeSpentMinutes,
+            status: "cancelled",
+            completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100),
+            currentMode: currentMode,
+            currentPhaseIndex: currentPhaseIndex
+          };
+          sessions.push(sessionData);
+          localStorage.setItem("focus_sessions", JSON.stringify(sessions));
+        } catch (error) {
+          console.error("Error saving sudden closure data:", error);
+        }
+
+        // Show warning to user
+        event.preventDefault();
+        event.returnValue = "Are you sure you want to leave? Your session will be marked as suddenly closed.";
+        return "Are you sure you want to leave? Your session will be marked as suddenly closed.";
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (isSessionActive && isRunning && document.hidden) {
+        // Session is still active but tab is hidden - this might be a sudden closure
+        console.log("Session tab became hidden while active");
+      }
+    };
+
+    // Add event listeners
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isSessionActive, isRunning, sessionStartTime, currentMode, currentPhaseIndex, sessionPlan, actualStudyTime, actualBreakTime, totalStudyTime, totalBreakTime, parentSettings.studyTimeHours, parentSettings.breakTimeHours]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopCamera();
-      // Clear any remaining intervals
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => {
-          if (track.kind === 'video') {
-            track.stop();
-          }
-        });
+    };
+  }, [stopCamera]);
+
+  // Custom navigation blocker using popstate and click handlers
+  useEffect(() => {
+    if (!isSessionActive || !isRunning) return;
+
+    // Handle back/forward browser navigation
+    const handlePopState = (event) => {
+      event.preventDefault();
+      playWarningSound(); // Play warning sound
+      setShowNavigationWarning(true);
+      setPendingNavigation({ type: 'popstate' });
+      // Push current state back to prevent immediate navigation
+      window.history.pushState(null, '', window.location.pathname);
+    };
+
+    // Handle link clicks
+    const handleClick = (event) => {
+      // Check if it's a navigation link
+      const link = event.target.closest('a, button');
+      if (link && !link.classList.contains('no-block')) {
+        const href = link.getAttribute('href');
+        const onClick = link.getAttribute('onClick');
+
+        // Check if it's a navigation action
+        if (href || (onClick && (onClick.includes('navigate') || onClick.includes('history')))) {
+          event.preventDefault();
+          event.stopPropagation();
+          playWarningSound(); // Play warning sound
+          setShowNavigationWarning(true);
+          setPendingNavigation({ type: 'click', href });
+        }
       }
     };
-  }, []);
 
-  const saveSession = () => {
-    try {
-      const sessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
-      
-      // Calculate final actual times including current phase
-      const finalActualStudyTime = actualStudyTime + (currentMode === "study" && sessionStartTime ? 
-        Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
-      const finalActualBreakTime = actualBreakTime + (currentMode === "break" && sessionStartTime ? 
-        Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
-      
-      const sessionData = {
-        type: "focus",
-        studyTimeHours: parentSettings.studyTimeHours,
-        breakTimeHours: parentSettings.breakTimeHours,
-        totalStudyTime: totalStudyTime,
-        totalBreakTime: totalBreakTime,
-        actualStudyTime: finalActualStudyTime,
-        actualBreakTime: finalActualBreakTime,
-        totalPhases: sessionPlan.length,
-        completedPhases: currentPhaseIndex + 1,
-        sessionPlan: sessionPlan,
-        timestamp: new Date().toISOString(),
-        totalDuration: finalActualStudyTime + finalActualBreakTime
-      };
-      
-      sessions.push(sessionData);
-      localStorage.setItem("focus_sessions", JSON.stringify(sessions));
-      
-      // Update available break time
-      const currentBreakTime = parseInt(localStorage.getItem("available_break_time") || "0");
-      localStorage.setItem("available_break_time", (currentBreakTime + finalActualBreakTime).toString());
-      
-      console.log("Session saved:", sessionData);
-    } catch (error) {
-      console.error("Error saving session:", error);
-      toast.error("Failed to save session data");
-    }
+    // Push initial state
+    window.history.pushState(null, '', window.location.pathname);
+
+    // Add event listeners
+    window.addEventListener('popstate', handlePopState);
+    document.addEventListener('click', handleClick, true);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      document.removeEventListener('click', handleClick, true);
+    };
+  }, [isSessionActive, isRunning, playWarningSound]);
+
+  // Handle navigation confirmation
+  const handleCancelNavigation = () => {
+    setShowNavigationWarning(false);
+    setPendingNavigation(null);
+    toast.info("Continuing session...");
+  };
+
+  const handleConfirmNavigation = () => {
+    // Stop and save the session
+    stopSession("manual");
+
+    // Reset warning state
+    setShowNavigationWarning(false);
+
+    // Allow some time for session to save
+    setTimeout(() => {
+      if (pendingNavigation) {
+        if (pendingNavigation.type === 'popstate') {
+          // Go back in history
+          window.history.back();
+        } else if (pendingNavigation.href) {
+          // Navigate to the href
+          navigate(pendingNavigation.href);
+        } else {
+          // Default to home
+          navigate('/home');
+        }
+      }
+      setPendingNavigation(null);
+    }, 100);
+
+    toast.info("Session cancelled due to navigation");
   };
 
   const formatTime = (seconds) => {
@@ -509,36 +922,136 @@ const Focus = () => {
                       </CardContent>
                     </Card>
                   </div>
-                  
-                  {/* Session Plan Details */}
+
+                  {/* Session Plan Details - Smart Display */}
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                     <h4 className="text-sm font-semibold text-gray-800 mb-3">📋 Your Session Plan:</h4>
-                    <div className="space-y-2">
-                      {sessionPlan.map((phase, index) => (
-                        <div key={index} className={`flex items-center justify-between p-3 rounded-lg ${
-                          phase.type === "study" ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"
-                        }`}>
-                          <div className="flex items-center gap-3">
-                            <span className="text-lg">
-                              {phase.type === "study" ? "📚" : "🎮"}
-                            </span>
-                            <div>
-                              <p className="font-medium text-gray-800">
-                                {phase.type === "study" ? "Study Time" : "Break Time"}
-                              </p>
-                              <p className="text-sm text-gray-600">Phase {index + 1}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-lg">
-                              {Math.round(phase.duration)} min
-                            </p>
+
+                    {/* Pattern Summary - Always show for more than 3 phases */}
+                    {sessionPlan.length > 3 ? (
+                      <div className="space-y-3">
+                        {/* Pattern Overview */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <p className="text-sm font-medium text-blue-800 mb-2">Session Pattern:</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {sessionPlan.slice(0, 6).map((phase, index) => (
+                              <div key={index} className="flex items-center">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  phase.type === "study"
+                                    ? "bg-orange-200 text-orange-800"
+                                    : "bg-green-200 text-green-800"
+                                }`}>
+                                  {phase.type === "study" ? "📚" : "🎮"} {Math.round(phase.duration)}m
+                                </span>
+                                {index < Math.min(sessionPlan.length - 1, 5) && (
+                                  <span className="mx-1 text-gray-400">→</span>
+                                )}
+                              </div>
+                            ))}
+                            {sessionPlan.length > 6 && (
+                              <span className="text-xs text-gray-500">... ({sessionPlan.length - 6} more)</span>
+                            )}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-gray-600 mt-3">
-                      Total: {Math.round(totalStudyTime + totalBreakTime)} minutes across {sessionPlan.length} phases
+
+                        {/* Cycle Summary if pattern repeats */}
+                        {(() => {
+                          const studyPhases = sessionPlan.filter(p => p.type === "study");
+                          const breakPhases = sessionPlan.filter(p => p.type === "break");
+                          const hasPattern = studyPhases.length > 1 && breakPhases.length > 1;
+
+                          if (hasPattern) {
+                            return (
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-orange-50 border border-orange-200 rounded-lg p-2">
+                                  <p className="text-xs text-orange-600 mb-1">📚 Study Phases</p>
+                                  <p className="text-lg font-bold text-orange-800">{studyPhases.length}×</p>
+                                  <p className="text-xs text-orange-600">{Math.round(studyPhases[0].duration)}m each</p>
+                                </div>
+                                <div className="bg-green-50 border border-green-200 rounded-lg p-2">
+                                  <p className="text-xs text-green-600 mb-1">🎮 Break Phases</p>
+                                  <p className="text-lg font-bold text-green-800">{breakPhases.length}×</p>
+                                  <p className="text-xs text-green-600">{Math.round(breakPhases[0].duration)}m each</p>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {/* Compact phase list - show first 3 and last 1 if more than 4 phases */}
+                        <div className="space-y-2">
+                          {sessionPlan.slice(0, 3).map((phase, index) => (
+                            <div key={index} className={`flex items-center justify-between p-2 rounded-lg ${
+                              phase.type === "study" ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"
+                            }`}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-base">{phase.type === "study" ? "📚" : "🎮"}</span>
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">
+                                    {phase.type === "study" ? "Study" : "Break"} - Phase {index + 1}
+                                  </p>
+                                </div>
+                              </div>
+                              <p className="font-bold text-sm">{Math.round(phase.duration)} min</p>
+                            </div>
+                          ))}
+
+                          {sessionPlan.length > 4 && (
+                            <div className="text-center py-2">
+                              <p className="text-xs text-gray-500">... {sessionPlan.length - 4} more phases ...</p>
+                            </div>
+                          )}
+
+                          {sessionPlan.length > 3 && (
+                            <div className={`flex items-center justify-between p-2 rounded-lg ${
+                              sessionPlan[sessionPlan.length - 1].type === "study"
+                                ? "bg-orange-50 border border-orange-200"
+                                : "bg-green-50 border border-green-200"
+                            }`}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-base">
+                                  {sessionPlan[sessionPlan.length - 1].type === "study" ? "📚" : "🎮"}
+                                </span>
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">
+                                    {sessionPlan[sessionPlan.length - 1].type === "study" ? "Study" : "Break"} - Phase {sessionPlan.length}
+                                  </p>
+                                </div>
+                              </div>
+                              <p className="font-bold text-sm">
+                                {Math.round(sessionPlan[sessionPlan.length - 1].duration)} min
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Show all phases if 3 or fewer */
+                      <div className="space-y-2">
+                        {sessionPlan.map((phase, index) => (
+                          <div key={index} className={`flex items-center justify-between p-3 rounded-lg ${
+                            phase.type === "study" ? "bg-orange-50 border border-orange-200" : "bg-green-50 border border-green-200"
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <span className="text-lg">{phase.type === "study" ? "📚" : "🎮"}</span>
+                              <div>
+                                <p className="font-medium text-gray-800">
+                                  {phase.type === "study" ? "Study Time" : "Break Time"}
+                                </p>
+                                <p className="text-sm text-gray-600">Phase {index + 1}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-bold text-lg">{Math.round(phase.duration)} min</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-gray-600 mt-3 text-center">
+                      📊 Total: {Math.round(totalStudyTime + totalBreakTime)} minutes • {sessionPlan.length} phases
                     </p>
                   </div>
                 </div>
@@ -574,9 +1087,14 @@ const Focus = () => {
                         onLoadedMetadata={() => console.log("Video metadata loaded")}
                         onError={(e) => console.error("Video error:", e)}
                       />
+                      <canvas
+                        ref={canvasRef}
+                        className="absolute top-0 left-0 w-full h-full pointer-events-none"
+                        style={{ mixBlendMode: 'normal' }}
+                      />
                       <div className="absolute top-4 left-4 flex items-center gap-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm">
                         <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                        Monitoring
+                        {isModelLoaded ? "AI Monitoring" : "Monitoring"}
                       </div>
                       <div className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
                         faceDetected ? "bg-green-500 text-white" : "bg-yellow-500 text-white"
@@ -584,8 +1102,13 @@ const Focus = () => {
                         <div className={`w-2 h-2 rounded-full ${
                           faceDetected ? "bg-white" : "bg-white animate-pulse"
                         }`} />
-                        {faceDetected ? "Face Detected" : "Looking for Face"}
+                        {faceDetected ? "✓ Face Detected" : "⚠ Looking for Face"}
                       </div>
+                      {isModelLoaded && (
+                        <div className="absolute bottom-4 left-4 bg-blue-500/80 text-white px-2 py-1 rounded text-xs">
+                          🤖 TensorFlow.js Active
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4">
@@ -709,23 +1232,87 @@ const Focus = () => {
 
                 {/* Session Plan Overview */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-blue-800 mb-3">📋 Session Plan Overview:</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {sessionPlan.map((phase, index) => (
-                      <div key={index} className={`p-2 rounded-lg text-center text-xs ${
-                        index < currentPhaseIndex ? "bg-green-100 text-green-800" :
-                        index === currentPhaseIndex ? (currentMode === "study" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800") :
-                        "bg-gray-100 text-gray-600"
-                      }`}>
-                        <div className="font-medium">
-                          {phase.type === "study" ? "📚" : "🎮"}
-                        </div>
-                        <div className="text-xs">
-                          {Math.round(phase.duration)}m
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-blue-800">📋 Session Plan Overview:</h4>
+                    {sessionPlan.length > 6 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsSessionPlanExpanded(!isSessionPlanExpanded)}
+                        className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1 px-2"
+                      >
+                        {isSessionPlanExpanded ? "Show Less ▲" : "Show All ▼"}
+                      </Button>
+                    )}
                   </div>
+
+                  {/* Compact view for many phases */}
+                  {sessionPlan.length > 6 && !isSessionPlanExpanded ? (
+                    <div className="space-y-3">
+                      {/* Show first 4 phases */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {sessionPlan.slice(0, 4).map((phase, index) => (
+                          <div key={index} className={`p-2 rounded-lg text-center text-xs ${
+                            index < currentPhaseIndex ? "bg-green-100 text-green-800" :
+                            index === currentPhaseIndex ? (currentMode === "study" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800") :
+                            "bg-gray-100 text-gray-600"
+                          }`}>
+                            <div className="font-medium">
+                              {phase.type === "study" ? "📚" : "🎮"}
+                            </div>
+                            <div className="text-xs">
+                              {Math.round(phase.duration)}m
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Show ellipsis */}
+                      <div className="text-center py-1">
+                        <p className="text-xs text-gray-500">... {sessionPlan.length - 6} more phases ...</p>
+                      </div>
+
+                      {/* Show last 2 phases */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {sessionPlan.slice(-2).map((phase, index) => {
+                          const actualIndex = sessionPlan.length - 2 + index;
+                          return (
+                            <div key={actualIndex} className={`p-2 rounded-lg text-center text-xs ${
+                              actualIndex < currentPhaseIndex ? "bg-green-100 text-green-800" :
+                              actualIndex === currentPhaseIndex ? (currentMode === "study" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800") :
+                              "bg-gray-100 text-gray-600"
+                            }`}>
+                              <div className="font-medium">
+                                {phase.type === "study" ? "📚" : "🎮"}
+                              </div>
+                              <div className="text-xs">
+                                {Math.round(phase.duration)}m
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Full grid view */
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {sessionPlan.map((phase, index) => (
+                        <div key={index} className={`p-2 rounded-lg text-center text-xs ${
+                          index < currentPhaseIndex ? "bg-green-100 text-green-800" :
+                          index === currentPhaseIndex ? (currentMode === "study" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800") :
+                          "bg-gray-100 text-gray-600"
+                        }`}>
+                          <div className="font-medium">
+                            {phase.type === "study" ? "📚" : "🎮"}
+                          </div>
+                          <div className="text-xs">
+                            {Math.round(phase.duration)}m
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <p className="text-xs text-blue-600 mt-2">
                     💡 Green = Completed • Orange = Current Study • Gray = Upcoming
                   </p>
@@ -775,9 +1362,174 @@ const Focus = () => {
                     variant="outline"
                     size="lg"
                     onClick={stopSession}
-                    className="gap-2 border-red-200 text-red-600 hover:bg-red-50"
+                    className="gap-2 border-red-200 text-red-600 hover:bg-red-50 no-block"
                   >
                     Stop Session
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Success Completion Modal */}
+        {showSuccessModal && completionStats && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-300">
+            <Card className="max-w-lg w-full mx-4 shadow-2xl animate-in zoom-in duration-500">
+              <CardContent className="p-8">
+                {/* Celebration Header */}
+                <div className="text-center mb-6">
+                  <div className="text-6xl mb-4 animate-bounce">🎉</div>
+                  <h2 className="text-3xl font-bold text-green-600 mb-2">
+                    Congratulations!
+                  </h2>
+                  <p className="text-lg text-gray-700">
+                    You've successfully completed your focus session!
+                  </p>
+                </div>
+
+                {/* Stats Cards */}
+                <div className="space-y-4 mb-6">
+                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4 border-2 border-blue-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-3xl">✅</div>
+                        <div>
+                          <p className="text-sm text-blue-600 font-medium">Total Phases</p>
+                          <p className="text-2xl font-bold text-blue-800">{completionStats.totalPhases}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-orange-50 to-orange-100 rounded-lg p-4 border-2 border-orange-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-3xl">📚</div>
+                        <div>
+                          <p className="text-sm text-orange-600 font-medium">Study Time</p>
+                          <p className="text-2xl font-bold text-orange-800">{completionStats.studyTime} min</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-lg p-4 border-2 border-green-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-3xl">🎮</div>
+                        <div>
+                          <p className="text-sm text-green-600 font-medium">Break Time</p>
+                          <p className="text-2xl font-bold text-green-800">{completionStats.breakTime} min</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg p-4 border-2 border-purple-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-3xl">⏱️</div>
+                        <div>
+                          <p className="text-sm text-purple-600 font-medium">Total Session Time</p>
+                          <p className="text-2xl font-bold text-purple-800">{completionStats.totalTime} min</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Motivational Message */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <p className="text-center text-yellow-800 font-medium">
+                    🌟 Amazing work! You stayed focused and completed all phases. Keep up the great habit! 🌟
+                  </p>
+                </div>
+
+                {/* Action Button */}
+                <Button
+                  onClick={() => {
+                    setShowSuccessModal(false);
+                    navigate("/home");
+                  }}
+                  size="lg"
+                  className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold text-lg py-6 no-block"
+                >
+                  Back to Home 🏠
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Navigation Warning Modal */}
+        {showNavigationWarning && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-in fade-in duration-300">
+            <Card className="max-w-md w-full mx-4 shadow-2xl animate-in zoom-in duration-300 border-2 border-red-300">
+              <CardContent className="p-6">
+                {/* Warning Header */}
+                <div className="text-center mb-6">
+                  <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                    <AlertTriangle className="h-8 w-8 text-red-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-red-600 mb-2">
+                    Session in Progress!
+                  </h2>
+                  <p className="text-gray-700">
+                    You have an active focus session running.
+                  </p>
+                </div>
+
+                {/* Warning Message */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-start gap-3">
+                    <div className="text-xl">⚠️</div>
+                    <div className="flex-1">
+                      <p className="text-sm text-yellow-800 font-medium mb-2">
+                        If you leave this page:
+                      </p>
+                      <ul className="text-sm text-yellow-700 space-y-1">
+                        <li>• Your current session will be cancelled</li>
+                        <li>• Progress will be saved up to this point</li>
+                        <li>• The timer will stop immediately</li>
+                        <li>• Camera monitoring will end</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Session Info */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-blue-700">Current Phase:</span>
+                    <span className="font-bold text-blue-900">
+                      {currentPhaseIndex + 1} of {sessionPlan.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mt-2">
+                    <span className="text-blue-700">Time Remaining:</span>
+                    <span className="font-bold text-blue-900">
+                      {formatTime(timeLeft)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    onClick={handleCancelNavigation}
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700 text-white no-block"
+                  >
+                    Stay Here
+                  </Button>
+                  <Button
+                    onClick={handleConfirmNavigation}
+                    variant="outline"
+                    size="lg"
+                    className="border-red-300 text-red-600 hover:bg-red-50 no-block"
+                  >
+                    Leave & Cancel
                   </Button>
                 </div>
               </CardContent>
