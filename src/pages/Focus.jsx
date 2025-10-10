@@ -58,6 +58,19 @@ const Focus = () => {
     // Initialize audio context
     audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
 
+    // Mobile-specific optimizations
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+      // Prevent zoom on input focus for mobile
+      const viewport = document.querySelector('meta[name=viewport]');
+      if (viewport) {
+        viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+      }
+      
+      // Add mobile-specific CSS class
+      document.body.classList.add('mobile-device');
+    }
+
     // Load face detection model
     const loadFaceDetectionModel = async () => {
       try {
@@ -68,7 +81,11 @@ const Focus = () => {
         const detectorConfig = {
           runtime: 'tfjs',
           refineLandmarks: false,
-          maxFaces: 1
+          maxFaces: 1,
+          // Mobile-optimized settings
+          modelUrl: undefined, // Use default model
+          enableSmoothing: true,
+          enableSegmentation: false
         };
         faceDetectorRef.current = await faceLandmarksDetection.createDetector(model, detectorConfig);
         setIsModelLoaded(true);
@@ -259,8 +276,17 @@ const Focus = () => {
       console.log("Protocol:", window.location.protocol);
       console.log("Hostname:", window.location.hostname);
 
+      // Check if mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      console.log("Mobile device detected:", isMobile);
+
       if (!isSecure) {
         console.warn("Camera may not work on non-secure connections. Consider using HTTPS or localhost.");
+      }
+
+      if (isMobile) {
+        console.log("Mobile device detected - using mobile-optimized camera settings");
+        toast.info("📱 Mobile camera mode activated");
       }
 
       // Enable camera - the Webcam component will handle the rest
@@ -274,18 +300,18 @@ const Focus = () => {
         stack: error.stack
       });
 
-      // Provide specific error messages
+      // Provide specific error messages with mobile-specific guidance
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        toast.error("❌ Camera permission denied. Click 'Continue Without Camera' or allow camera access in browser settings.");
+        toast.error("❌ Camera permission denied. On mobile: Go to browser settings → Site permissions → Camera → Allow");
         console.log("Camera permission was denied by user or browser");
       } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
         toast.error("❌ No camera found on this device. You can continue without camera monitoring.");
         setFaceDetected(true); // Simulate face detection for demo
       } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-        toast.error("❌ Camera is being used by another application. Close other apps and try again.");
+        toast.error("❌ Camera is being used by another app. Close camera apps and try again.");
         console.log("Camera is in use by another application");
       } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
-        toast.error("❌ Camera doesn't support the requested settings. You can continue without camera.");
+        toast.error("❌ Camera settings not supported. Trying fallback mode...");
         setFaceDetected(true);
       } else if (error.message.includes('secure')) {
         toast.error("❌ Camera requires HTTPS. Use localhost or HTTPS connection.");
@@ -320,9 +346,17 @@ const Focus = () => {
             return;
           }
 
-          // Detect faces in the video
+          // Check if video is ready and has dimensions
+          if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+            console.log("Video not ready - no dimensions");
+            return;
+          }
+
+          // Detect faces in the video with mobile-optimized settings
           const faces = await faceDetectorRef.current.estimateFaces(videoElement, {
-            flipHorizontal: false
+            flipHorizontal: false,
+            predictIrisesAndPupils: false,
+            refineLandmarks: false
           });
 
           const isDetected = faces && faces.length > 0;
@@ -410,11 +444,13 @@ const Focus = () => {
         }
       };
 
-      // Run detection every 2 seconds
-      detectionIntervalRef.current = setInterval(detectFaces, 2000);
+      // Run detection every 3 seconds (more mobile-friendly)
+      detectionIntervalRef.current = setInterval(detectFaces, 3000);
 
-      // Run first detection immediately
-      detectFaces();
+      // Run first detection after a delay to ensure video is ready
+      setTimeout(() => {
+        detectFaces();
+      }, 1500);
     } else {
       console.log("Using fallback face detection simulation...");
 
@@ -1122,7 +1158,7 @@ const Focus = () => {
             {/* Camera Preview */}
             <Card className="shadow-[var(--shadow-soft)] animate-scale-in overflow-hidden">
               <CardContent className="p-0">
-                <div className="relative bg-black aspect-video">
+                <div className="relative bg-black aspect-video touch-none">
                   {cameraEnabled ? (
                     <>
                       <Webcam
@@ -1137,7 +1173,7 @@ const Focus = () => {
                           // Start face detection after webcam is ready
                           setTimeout(() => {
                             startFaceDetectionSimulation();
-                          }, 500);
+                          }, 1000); // Increased delay for mobile
                         }}
                         onUserMediaError={(error) => {
                           console.error("Webcam error:", error);
@@ -1146,9 +1182,21 @@ const Focus = () => {
                         }}
                         videoConstraints={{
                           facingMode: 'user',
-                          width: { ideal: 640 },
-                          height: { ideal: 480 }
+                          width: { 
+                            min: 320,
+                            ideal: 640,
+                            max: 1280
+                          },
+                          height: { 
+                            min: 240,
+                            ideal: 480,
+                            max: 720
+                          },
+                          frameRate: { ideal: 15, max: 30 }
                         }}
+                        screenshotFormat="image/jpeg"
+                        screenshotQuality={0.8}
+                        mirrored={true}
                       />
                       <canvas
                         ref={canvasRef}
@@ -1183,17 +1231,29 @@ const Focus = () => {
                         <p>• Close other camera applications</p>
                         <p>• Refresh the page if needed</p>
                       </div>
-                      <Button 
-                        onClick={() => {
-                          setFaceDetected(true);
-                          toast.success("Continuing without camera monitoring");
-                        }}
-                        variant="outline" 
-                        size="sm"
-                        className="text-xs"
-                      >
-                        Continue Without Camera
-                      </Button>
+                      <div className="space-y-2">
+                        <Button 
+                          onClick={() => {
+                            setFaceDetected(true);
+                            toast.success("Continuing without camera monitoring");
+                          }}
+                          variant="outline" 
+                          size="sm"
+                          className="text-xs w-full"
+                        >
+                          Continue Without Camera
+                        </Button>
+                        <Button 
+                          onClick={() => {
+                            window.location.reload();
+                          }}
+                          variant="outline" 
+                          size="sm"
+                          className="text-xs w-full bg-blue-50 border-blue-200 text-blue-600"
+                        >
+                          🔄 Retry Camera
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
