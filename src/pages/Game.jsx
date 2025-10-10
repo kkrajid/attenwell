@@ -10,7 +10,7 @@ const Game = () => {
   const [availableTime, setAvailableTime] = useState(0);
 
   useEffect(() => {
-    const playTime = parseInt(localStorage.getItem("available_play_time") || "0");
+    const playTime = parseInt(localStorage.getItem("available_break_time") || "0");
     setAvailableTime(playTime);
   }, []);
 

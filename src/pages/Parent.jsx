@@ -16,50 +16,131 @@ const Parent = () => {
   const [playTime, setPlayTime] = useState(0);
   const [sessions, setSessions] = useState([]);
   const [settings, setSettings] = useState({
-    screenLimit: 120,
-    studyPlayRatio: "60:40",
+    studyTimeHours: 0.5, // 30 minutes in hours
+    breakTimeHours: 0.25, // 15 minutes in hours
   });
 
   useEffect(() => {
-    // Load meditation sessions
-    const meditationSessions = JSON.parse(localStorage.getItem("meditation_sessions") || "[]");
-    const focusSessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
+    // Load saved settings with validation
+    const savedSettings = localStorage.getItem("parent_settings");
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        // Validate settings and set defaults if invalid
+        setSettings({
+          studyTimeHours: parsed.studyTimeHours !== null && parsed.studyTimeHours !== undefined 
+            ? Math.max(0.016, Math.min(2, parsed.studyTimeHours)) 
+            : 0.5, // 1 min to 2 hours, default 30 min
+          breakTimeHours: parsed.breakTimeHours !== null && parsed.breakTimeHours !== undefined 
+            ? Math.max(0.016, Math.min(1, parsed.breakTimeHours)) 
+            : 0.25, // 1 min to 1 hour, default 15 min
+        });
+      } catch (error) {
+        console.error("Error parsing parent settings:", error);
+        // Use default settings
+      }
+    }
+
+    // Load meditation sessions with error handling
+    let meditationSessions = [];
+    try {
+      meditationSessions = JSON.parse(localStorage.getItem("meditation_sessions") || "[]");
+    } catch (error) {
+      console.error("Error parsing meditation sessions:", error);
+    }
+
+    // Load focus sessions with error handling
+    let focusSessions = [];
+    try {
+      focusSessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
+    } catch (error) {
+      console.error("Error parsing focus sessions:", error);
+    }
     
     const todayStart = new Date().setHours(0, 0, 0, 0);
     
-    // Calculate today's stats
+    // Calculate today's stats with safe property access
     const todayMeditation = meditationSessions
-      .filter((s) => new Date(s.timestamp).getTime() >= todayStart)
-      .reduce((sum, s) => sum + s.duration, 0);
+      .filter((s) => s.timestamp && new Date(s.timestamp).getTime() >= todayStart)
+      .reduce((sum, s) => {
+        const duration = s.actualDuration || s.duration || 0;
+        return sum + (typeof duration === 'number' ? duration : 0);
+      }, 0);
     
     const todayStudy = focusSessions
-      .filter((s) => new Date(s.timestamp).getTime() >= todayStart)
-      .reduce((sum, s) => sum + s.studyTime, 0);
+      .filter((s) => s.timestamp && new Date(s.timestamp).getTime() >= todayStart)
+      .reduce((sum, s) => {
+        const studyTime = s.actualStudyTime || s.totalStudyTime || 0;
+        return sum + (typeof studyTime === 'number' ? studyTime : 0);
+      }, 0);
     
     const todayPlay = focusSessions
-      .filter((s) => new Date(s.timestamp).getTime() >= todayStart)
-      .reduce((sum, s) => sum + s.playTime, 0);
+      .filter((s) => s.timestamp && new Date(s.timestamp).getTime() >= todayStart)
+      .reduce((sum, s) => {
+        const breakTime = s.actualBreakTime || s.totalBreakTime || 0;
+        return sum + (typeof breakTime === 'number' ? breakTime : 0);
+      }, 0);
     
-    setMeditationTime(todayMeditation);
-    setStudyTime(todayStudy);
-    setPlayTime(todayPlay);
+    setMeditationTime(Math.round(todayMeditation));
+    setStudyTime(Math.round(todayStudy));
+    setPlayTime(Math.round(todayPlay));
     
-    // Combine all sessions
+    // Combine all sessions with proper data structure
     const allSessions = [
-      ...meditationSessions.map((s) => ({ ...s, activity: "Meditation" })),
-      ...focusSessions.map((s) => ({ 
-        ...s, 
-        activity: "Focus Session",
-        duration: s.studyTime + s.playTime 
-      }))
-    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      ...meditationSessions
+        .filter(s => s.timestamp)
+        .map((s) => ({ 
+          ...s, 
+          activity: "Meditation",
+          duration: s.actualDuration || s.duration || 0
+        })),
+      ...focusSessions
+        .filter(s => s.timestamp)
+        .map((s) => ({ 
+          ...s, 
+          activity: "Focus Session",
+          duration: (s.actualStudyTime || s.totalStudyTime || 0) + (s.actualBreakTime || s.totalBreakTime || 0)
+        }))
+    ]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 10);
     
-    setSessions(allSessions.slice(0, 10));
+    setSessions(allSessions);
   }, []);
 
   const handleSaveSettings = () => {
-    localStorage.setItem("parent_settings", JSON.stringify(settings));
+    // Validate settings before saving
+    const validatedSettings = {
+      studyTimeHours: settings.studyTimeHours !== null && settings.studyTimeHours !== undefined 
+        ? Math.max(0.016, Math.min(2, settings.studyTimeHours)) 
+        : 0.5,
+      breakTimeHours: settings.breakTimeHours !== null && settings.breakTimeHours !== undefined 
+        ? Math.max(0.016, Math.min(1, settings.breakTimeHours)) 
+        : 0.25,
+    };
+    
+    setSettings(validatedSettings);
+    localStorage.setItem("parent_settings", JSON.stringify(validatedSettings));
     toast.success("Settings saved successfully!");
+  };
+
+  const handleSettingsChange = (field, stringValue) => {
+    let numValue;
+    if (stringValue === "" || stringValue === null || stringValue === undefined) {
+      numValue = null; // Allow empty input
+    } else {
+      const minutes = parseFloat(stringValue);
+      if (isNaN(minutes)) {
+        numValue = 0; // Fallback for invalid non-empty input
+      } else {
+        numValue = minutes / 60; // Convert minutes to hours for storage
+      }
+    }
+
+    setSettings(prev => ({
+      ...prev,
+      [field]: numValue
+    }));
   };
 
   const formatDate = (timestamp) => {
@@ -179,32 +260,46 @@ const Parent = () => {
                 <CardDescription>Customize your child's experience</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="screenLimit">Daily Screen Time Limit (minutes)</Label>
-                  <Input
-                    id="screenLimit"
-                    type="number"
-                    value={settings.screenLimit}
-                    onChange={(e) => setSettings({ ...settings, screenLimit: parseInt(e.target.value) })}
-                    className="h-12"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="studyTimeMinutes">Study Time (minutes)</Label>
+                    <Input
+                      id="studyTimeMinutes"
+                      type="number"
+                      step="5"
+                      value={settings.studyTimeHours !== null ? Math.round(settings.studyTimeHours * 60) : ""}
+                      onChange={(e) => handleSettingsChange('studyTimeHours', e.target.value)}
+                      className="h-12"
+                      min="1"
+                      max="120"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="breakTimeMinutes">Break Time (minutes)</Label>
+                    <Input
+                      id="breakTimeMinutes"
+                      type="number"
+                      step="5"
+                      value={settings.breakTimeHours !== null ? Math.round(settings.breakTimeHours * 60) : ""}
+                      onChange={(e) => handleSettingsChange('breakTimeHours', e.target.value)}
+                      className="h-12"
+                      min="1"
+                      max="60"
+                    />
+                  </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ratio">Study/Play Time Ratio</Label>
-                  <Select
-                    value={settings.studyPlayRatio}
-                    onValueChange={(value) => setSettings({ ...settings, studyPlayRatio: value })}
-                  >
-                    <SelectTrigger id="ratio" className="h-12">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="70:30">70% Study / 30% Play</SelectItem>
-                      <SelectItem value="60:40">60% Study / 40% Play</SelectItem>
-                      <SelectItem value="50:50">50% Study / 50% Play</SelectItem>
-                    </SelectContent>
-                  </Select>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-blue-800 mb-2">📚 Focus Session Example:</h4>
+                  <p className="text-sm text-blue-700">
+                    If your child enters 60 minutes total, they will have:
+                  </p>
+                  <div className="mt-2 text-sm text-blue-600">
+                    <p>• Multiple cycles of {Math.round((settings.studyTimeHours || 0.5) * 60)} minutes study + {Math.round((settings.breakTimeHours || 0.25) * 60)} minutes break</p>
+                    <p>• Each cycle: {Math.round(((settings.studyTimeHours || 0.5) + (settings.breakTimeHours || 0.25)) * 60)} minutes</p>
+                    <p>• Total cycles: {Math.floor(60 / Math.round(((settings.studyTimeHours || 0.5) + (settings.breakTimeHours || 0.25)) * 60))} complete cycles</p>
+                  </div>
                 </div>
 
                 <Button onClick={handleSaveSettings} variant="parent" size="lg" className="w-full">
