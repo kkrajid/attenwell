@@ -8,9 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Brain, BookOpen, Gamepad2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import apiService from "@/services/api";
 
 const Parent = () => {
   const navigate = useNavigate();
+  const { user, isAuthenticated, loading } = useAuth();
   const [meditationTime, setMeditationTime] = useState(0);
   const [studyTime, setStudyTime] = useState(0);
   const [playTime, setPlayTime] = useState(0);
@@ -25,169 +28,76 @@ const Parent = () => {
     studyTimeHours: 0.5, // 30 minutes in hours
     breakTimeHours: 0.25, // 15 minutes in hours
   });
+  const [dashboardLoading, setDashboardLoading] = useState(true);
 
   useEffect(() => {
-    // Load saved settings with validation
-    const savedSettings = localStorage.getItem("parent_settings");
-    if (savedSettings) {
+    if (!isAuthenticated || loading) return;
+
+    const loadDashboardData = async () => {
       try {
-        const parsed = JSON.parse(savedSettings);
-        // Validate settings and set defaults if invalid
+        setDashboardLoading(true);
+        
+        // Load parent settings
+        const settingsData = await apiService.getParentSettings();
         setSettings({
-          studyTimeHours: parsed.studyTimeHours !== null && parsed.studyTimeHours !== undefined 
-            ? Math.max(0.016, Math.min(2, parsed.studyTimeHours)) 
-            : 0.5, // 1 min to 2 hours, default 30 min
-          breakTimeHours: parsed.breakTimeHours !== null && parsed.breakTimeHours !== undefined 
-            ? Math.max(0.016, Math.min(1, parsed.breakTimeHours)) 
-            : 0.25, // 1 min to 1 hour, default 15 min
+          studyTimeHours: settingsData.study_time_hours,
+          breakTimeHours: settingsData.break_time_hours,
         });
-      } catch (error) {
-        console.error("Error parsing parent settings:", error);
-        // Use default settings
-      }
-    }
 
-    // Load meditation sessions with error handling
-    let meditationSessions = [];
-    try {
-      meditationSessions = JSON.parse(localStorage.getItem("meditation_sessions") || "[]");
-    } catch (error) {
-      console.error("Error parsing meditation sessions:", error);
-    }
+        // Load dashboard data
+        const dashboardData = await apiService.getParentDashboard();
+        
+        setMeditationTime(dashboardData.meditation_time);
+        setStudyTime(dashboardData.study_time);
+        setPlayTime(dashboardData.play_time);
+        setTotalSessionsCount(dashboardData.total_sessions);
+        setCompletedSessionsCount(dashboardData.completed_sessions);
+        setCancelledSessionsCount(dashboardData.cancelled_sessions);
+        setSuddenClosuresCount(dashboardData.sudden_closures);
+        setRecentSessions(dashboardData.recent_sessions);
+        setSuddenClosures(dashboardData.sudden_closures_list);
 
-    // Load focus sessions with error handling
-    let focusSessions = [];
-    try {
-      focusSessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
-    } catch (error) {
-      console.error("Error parsing focus sessions:", error);
-    }
+        // Load all sessions for detailed view
+        const [meditationSessions, focusSessions] = await Promise.all([
+          apiService.getMeditationSessions(),
+          apiService.getFocusSessions()
+        ]);
 
-    // Load sudden closures with error handling
-    let suddenClosuresData = [];
-    try {
-      suddenClosuresData = JSON.parse(localStorage.getItem("sudden_closures") || "[]");
-    } catch (error) {
-      console.error("Error parsing sudden closures:", error);
-    }
-    
-    const todayStart = new Date().setHours(0, 0, 0, 0);
+        // Handle API response format - check if it's an array or has a results property
+        const meditationData = Array.isArray(meditationSessions) ? meditationSessions : (meditationSessions.results || []);
+        const focusData = Array.isArray(focusSessions) ? focusSessions : (focusSessions.results || []);
 
-    // Calculate today's stats with safe property access
-    const todayMeditation = meditationSessions
-      .filter((s) => {
-        if (!s.timestamp) return false;
-        try {
-          return new Date(s.timestamp).getTime() >= todayStart;
-        } catch (error) {
-          console.error("Invalid timestamp in meditation session:", s);
-          return false;
-        }
-      })
-      .reduce((sum, s) => {
-        const duration = s.actualDuration || s.duration || 0;
-        return sum + (typeof duration === 'number' && !isNaN(duration) ? duration : 0);
-      }, 0);
-
-    const todayStudy = focusSessions
-      .filter((s) => {
-        if (!s.timestamp) return false;
-        try {
-          const isToday = new Date(s.timestamp).getTime() >= todayStart;
-          const isCompleted = s.status === "completed";
-          const notSuddenClosure = s.type !== "focus_sudden_closure";
-          return isToday && isCompleted && notSuddenClosure;
-        } catch (error) {
-          console.error("Invalid timestamp in focus session:", s);
-          return false;
-        }
-      })
-      .reduce((sum, s) => {
-        const studyTime = s.actualStudyTime || s.totalStudyTime || 0;
-        return sum + (typeof studyTime === 'number' && !isNaN(studyTime) ? studyTime : 0);
-      }, 0);
-
-    const todayPlay = focusSessions
-      .filter((s) => {
-        if (!s.timestamp) return false;
-        try {
-          const isToday = new Date(s.timestamp).getTime() >= todayStart;
-          const isCompleted = s.status === "completed";
-          const notSuddenClosure = s.type !== "focus_sudden_closure";
-          return isToday && isCompleted && notSuddenClosure;
-        } catch (error) {
-          console.error("Invalid timestamp in focus session:", s);
-          return false;
-        }
-      })
-      .reduce((sum, s) => {
-        const breakTime = s.actualBreakTime || s.totalBreakTime || 0;
-        return sum + (typeof breakTime === 'number' && !isNaN(breakTime) ? breakTime : 0);
-      }, 0);
-    
-    setMeditationTime(Math.round(todayMeditation));
-    setStudyTime(Math.round(todayStudy));
-    setPlayTime(Math.round(todayPlay));
-
-    // Combine ALL sessions (not just recent 10)
-    const allSessions = [
-      ...meditationSessions
-        .filter(s => s.timestamp)
-        .map((s) => ({
-          ...s,
-          activity: "Meditation",
-          duration: typeof s.actualDuration === 'number' ? s.actualDuration : (s.duration || 0),
-          isSuddenClosure: false
-        })),
-      ...focusSessions
-        .filter(s => s.timestamp)
-        .map((s) => {
-          const actualStudy = typeof s.actualStudyTime === 'number' ? s.actualStudyTime : (s.totalStudyTime || 0);
-          const actualBreak = typeof s.actualBreakTime === 'number' ? s.actualBreakTime : (s.totalBreakTime || 0);
-          return {
+        const allSessions = [
+          ...meditationData.map(s => ({
             ...s,
-            activity: s.type === "focus_sudden_closure" ? "Focus Session (Sudden Closure)" : "Focus Session",
-            duration: actualStudy + actualBreak,
-            isSuddenClosure: s.type === "focus_sudden_closure",
-            status: s.status || "completed",
-            completionPercentage: typeof s.completionPercentage === 'number' ? s.completionPercentage : 100
-          };
-        })
-    ]
-    .filter(s => {
-      try {
-        // Validate timestamp and duration
-        return s.timestamp && !isNaN(new Date(s.timestamp).getTime()) && typeof s.duration === 'number';
+            activity: "Meditation",
+            duration: s.actual_duration,
+            isSuddenClosure: false
+          })),
+          ...focusData.map(s => ({
+            ...s,
+            activity: s.is_sudden_closure ? "Focus Session (Sudden Closure)" : "Focus Session",
+            duration: s.actual_study_time + s.actual_break_time,
+            isSuddenClosure: s.is_sudden_closure,
+            status: s.is_sudden_closure ? "sudden_closure" : s.status,
+            completionPercentage: s.completion_percentage
+          }))
+        ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        setSessions(allSessions);
+        
       } catch (error) {
-        console.error("Invalid session data:", s);
-        return false;
+        console.error("Error loading dashboard data:", error);
+        toast.error("Failed to load dashboard data");
+      } finally {
+        setDashboardLoading(false);
       }
-    })
-    .sort((a, b) => {
-      try {
-        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-      } catch (error) {
-        return 0;
-      }
-    });
+    };
 
-    // Calculate session counts from ALL sessions
-    const completedCount = allSessions.filter(s => s.status === "completed" && !s.isSuddenClosure).length;
-    const cancelledCount = allSessions.filter(s => s.status === "cancelled" && !s.isSuddenClosure).length;
-    const suddenClosureCount = allSessions.filter(s => s.isSuddenClosure).length;
+    loadDashboardData();
+  }, [isAuthenticated, loading]);
 
-    setTotalSessionsCount(allSessions.length);
-    setCompletedSessionsCount(completedCount);
-    setCancelledSessionsCount(cancelledCount);
-    setSuddenClosuresCount(suddenClosureCount);
-
-    // Store all sessions and recent 10 separately
-    setSessions(allSessions);
-    setRecentSessions(allSessions.slice(0, 10));
-    setSuddenClosures(suddenClosuresData);
-  }, []);
-
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
     // Validate settings before saving
     if (settings.studyTimeHours === null || settings.studyTimeHours === undefined) {
       toast.error("Please enter a valid study time");
@@ -213,9 +123,18 @@ const Parent = () => {
       return;
     }
 
-    setSettings(validatedSettings);
-    localStorage.setItem("parent_settings", JSON.stringify(validatedSettings));
-    toast.success("Settings saved successfully!");
+    try {
+      await apiService.updateParentSettings({
+        study_time_hours: validatedSettings.studyTimeHours,
+        break_time_hours: validatedSettings.breakTimeHours,
+      });
+      
+      setSettings(validatedSettings);
+      toast.success("Settings saved successfully!");
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      toast.error("Failed to save settings");
+    }
   };
 
   const handleSettingsChange = (field, stringValue) => {
@@ -251,8 +170,28 @@ const Parent = () => {
     return new Date(timestamp).toLocaleString();
   };
 
+  // Authentication check
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isAuthenticated, loading, navigate]);
+
+  if (loading || dashboardLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-4">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
@@ -260,61 +199,61 @@ const Parent = () => {
             variant="ghost"
             size="icon"
             onClick={() => navigate("/home")}
-            className="rounded-full text-gray-600 hover:text-gray-800"
+            className="rounded-full text-slate-600 hover:text-slate-800 hover:bg-slate-100"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-3xl font-bold text-blue-600">Parent Dashboard</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Parent Dashboard</h1>
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="reports">Reports</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 bg-slate-100 rounded-xl p-1">
+            <TabsTrigger value="overview" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">Overview</TabsTrigger>
+            <TabsTrigger value="settings" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">Settings</TabsTrigger>
+            <TabsTrigger value="reports" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">Reports</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
             {/* Stats Cards */}
             <div className="grid sm:grid-cols-3 gap-4">
-              <Card className="shadow-[var(--shadow-soft)] animate-scale-in">
+              <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] backdrop-blur-sm">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-full bg-meditation/20">
-                      <Brain className="h-6 w-6 text-meditation" />
+                    <div className="p-3 rounded-full bg-gradient-to-br from-violet-100 to-violet-200 shadow-lg">
+                      <Brain className="h-6 w-6 text-violet-600" />
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Today's Meditation</p>
-                      <p className="text-2xl font-headings">{meditationTime} min</p>
+                      <p className="text-sm text-slate-500 font-medium">Today's Meditation</p>
+                      <p className="text-2xl font-bold text-slate-800">{meditationTime} min</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="shadow-[var(--shadow-soft)] animate-scale-in" style={{ animationDelay: "100ms" }}>
+              <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] backdrop-blur-sm">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-full bg-focus-study/20">
-                      <BookOpen className="h-6 w-6 text-focus-study" />
+                    <div className="p-3 rounded-full bg-gradient-to-br from-amber-100 to-amber-200 shadow-lg">
+                      <BookOpen className="h-6 w-6 text-amber-600" />
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Study Time (Completed)</p>
-                      <p className="text-2xl font-headings">{studyTime} min</p>
+                      <p className="text-sm text-slate-500 font-medium">Study Time (Completed)</p>
+                      <p className="text-2xl font-bold text-slate-800">{studyTime} min</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="shadow-[var(--shadow-soft)] animate-scale-in" style={{ animationDelay: "200ms" }}>
+              <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] backdrop-blur-sm">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-full bg-focus-play/20">
-                      <Gamepad2 className="h-6 w-6 text-focus-play" />
+                    <div className="p-3 rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 shadow-lg">
+                      <Gamepad2 className="h-6 w-6 text-emerald-600" />
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Play Time (Completed)</p>
-                      <p className="text-2xl font-headings">{playTime} min</p>
+                      <p className="text-sm text-slate-500 font-medium">Play Time (Completed)</p>
+                      <p className="text-2xl font-bold text-slate-800">{playTime} min</p>
                     </div>
                   </div>
                 </CardContent>
@@ -323,7 +262,7 @@ const Parent = () => {
 
             {/* Sudden Closures Alert */}
             {suddenClosures.length > 0 && (
-              <Card className="shadow-[var(--shadow-soft)] border-red-200 bg-red-50">
+              <Card className="bg-gradient-to-r from-red-50 to-red-100 border border-red-200 shadow-xl rounded-2xl">
                 <CardContent className="p-6">
                   <div className="flex items-start gap-4">
                     <div className="p-3 rounded-full bg-red-100">
@@ -339,7 +278,7 @@ const Parent = () => {
                       </p>
                       <div className="space-y-2">
                         {suddenClosures.slice(0, 3).map((closure, index) => (
-                          <div key={index} className="bg-white border border-red-200 rounded-lg p-3">
+                          <div key={index} className="bg-white border border-red-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
                             <div className="flex justify-between items-center">
                               <div>
                                 <p className="text-sm font-medium text-red-800">
@@ -370,39 +309,39 @@ const Parent = () => {
             )}
 
             {/* Session Completion Summary */}
-            <Card className="shadow-[var(--shadow-soft)]">
+            <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl">
               <CardHeader>
-                <CardTitle>Session Completion Summary</CardTitle>
-                <CardDescription>Overview of session completion rates</CardDescription>
+                <CardTitle className="text-slate-800 font-bold">Session Completion Summary</CardTitle>
+                <CardDescription className="text-slate-600">Overview of session completion rates</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-4 rounded-lg bg-green-50 border border-green-200">
-                    <p className="text-2xl font-bold text-green-700 mb-1">
+                  <div className="text-center p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 shadow-sm hover:shadow-md transition-shadow">
+                    <p className="text-2xl font-bold text-emerald-700 mb-1">
                       {completedSessionsCount}
                     </p>
-                    <p className="text-sm text-green-600">Completed Sessions</p>
+                    <p className="text-sm text-emerald-600 font-medium">Completed Sessions</p>
                   </div>
-                  <div className="text-center p-4 rounded-lg bg-orange-50 border border-orange-200">
-                    <p className="text-2xl font-bold text-orange-700 mb-1">
+                  <div className="text-center p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 shadow-sm hover:shadow-md transition-shadow">
+                    <p className="text-2xl font-bold text-amber-700 mb-1">
                       {cancelledSessionsCount}
                     </p>
-                    <p className="text-sm text-orange-600">Stopped Early</p>
+                    <p className="text-sm text-amber-600 font-medium">Stopped Early</p>
                   </div>
-                  <div className="text-center p-4 rounded-lg bg-red-50 border border-red-200">
+                  <div className="text-center p-4 rounded-xl bg-gradient-to-br from-red-50 to-red-100 border border-red-200 shadow-sm hover:shadow-md transition-shadow">
                     <p className="text-2xl font-bold text-red-700 mb-1">
                       {suddenClosuresCount}
                     </p>
-                    <p className="text-sm text-red-600">Sudden Closures</p>
+                    <p className="text-sm text-red-600 font-medium">Sudden Closures</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Recent Activity */}
-            <Card className="shadow-[var(--shadow-soft)]">
+            <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl">
               <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
+                <CardTitle className="text-slate-800 font-bold">Recent Activity</CardTitle>
                 <CardDescription>Latest 10 sessions and progress</CardDescription>
               </CardHeader>
               <CardContent>
@@ -411,26 +350,26 @@ const Parent = () => {
                     {recentSessions.map((session, index) => (
                       <div
                         key={index}
-                        className={`flex items-center justify-between p-3 rounded-lg ${
+                        className={`flex items-center justify-between p-4 rounded-xl shadow-sm hover:shadow-md transition-shadow ${
                           session.isSuddenClosure 
-                            ? "bg-red-50 border border-red-200" 
+                            ? "bg-gradient-to-r from-red-50 to-red-100 border border-red-200" 
                             : session.status === "cancelled"
-                            ? "bg-orange-50 border border-orange-200"
-                            : "bg-green-50 border border-green-200"
+                            ? "bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200"
+                            : "bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-200"
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${
+                          <div className={`w-3 h-3 rounded-full shadow-sm ${
                             session.isSuddenClosure 
                               ? "bg-red-500" 
                               : session.status === "cancelled"
-                              ? "bg-orange-500"
-                              : "bg-green-500"
+                              ? "bg-amber-500"
+                              : "bg-emerald-500"
                           }`} />
                           <div>
                             <p className={`font-medium ${
                               session.isSuddenClosure ? "text-red-800" : 
-                              session.status === "cancelled" ? "text-orange-800" : "text-green-800"
+                              session.status === "cancelled" ? "text-amber-800" : "text-emerald-800"
                             }`}>
                               {session.activity}
                               {session.isSuddenClosure && " ⚠️"}

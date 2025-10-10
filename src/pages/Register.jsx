@@ -6,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import logo from "@/assets/attenwell-logo.jpg";
 
 const Register = () => {
   const navigate = useNavigate();
+  const { register, loading } = useAuth();
   const [formData, setFormData] = useState({
     parentName: "",
     childName: "",
@@ -33,7 +35,7 @@ const Register = () => {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!formData.parentName || !formData.childName || !formData.age || !formData.email || !formData.password) {
@@ -51,39 +53,46 @@ const Register = () => {
       return;
     }
 
-    // In a real app, this would be an API call
     const userData = {
-      parentName: formData.parentName,
-      childName: formData.childName,
-      age: parseInt(formData.age),
+      username: formData.email.split('@')[0], // Use email prefix as username
       email: formData.email,
+      password: formData.password,
+      password_confirm: formData.confirmPassword,
+      parent_name: formData.parentName,
+      child_name: formData.childName,
+      child_age: parseInt(formData.age),
     };
+
+    const result = await register(userData);
     
-    localStorage.setItem("attenwell_user", JSON.stringify(userData));
-    toast.success("Registration successful!");
-    navigate("/home");
+    if (result.success) {
+      toast.success("Registration successful!");
+      navigate("/home");
+    } else {
+      toast.error(result.error || "Registration failed");
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 p-4">
-      <Card className="w-full max-w-md bg-white shadow-lg border border-gray-100 rounded-2xl">
-        <CardHeader className="text-center pb-6">
-          <div className="flex justify-center mb-6">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-2 sm:p-4">
+      <Card className="w-full max-w-md bg-white shadow-2xl border border-slate-200 rounded-3xl backdrop-blur-sm">
+        <CardHeader className="text-center pb-4 sm:pb-6">
+          <div className="flex justify-center mb-4 sm:mb-6">
             <div className="relative">
-              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center border-2 border-blue-200">
-                <img src={logo} alt="AttenWell" className="w-16 h-16 rounded-full" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-amber-100 to-amber-200 rounded-full flex items-center justify-center border-2 border-amber-300 shadow-xl">
+                <img src={logo} alt="AttenWell" className="w-12 h-12 sm:w-16 sm:h-16 rounded-full" />
               </div>
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold text-blue-600 mb-2">Join AttenWell</CardTitle>
-          <CardDescription className="text-gray-600 text-base">
+          <CardTitle className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent mb-2">Join AttenWell</CardTitle>
+          <CardDescription className="text-slate-600 text-sm sm:text-base">
             Create your family account
           </CardDescription>
         </CardHeader>
-        <CardContent className="px-6 pb-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
+        <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
+          <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="parentName" className="text-gray-700 font-medium">Parent Name</Label>
+              <Label htmlFor="parentName" className="text-slate-700 font-medium text-sm sm:text-base">Parent Name</Label>
               <Input
                 id="parentName"
                 name="parentName"
@@ -91,12 +100,12 @@ const Register = () => {
                 placeholder="Enter your name"
                 value={formData.parentName}
                 onChange={handleChange}
-                className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg"
+                className="h-10 sm:h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl text-sm sm:text-base shadow-sm"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="childName" className="text-gray-700 font-medium">Child Name</Label>
+              <Label htmlFor="childName" className="text-slate-700 font-medium text-sm sm:text-base">Child Name</Label>
               <Input
                 id="childName"
                 name="childName"
@@ -104,14 +113,14 @@ const Register = () => {
                 placeholder="Enter child's name"
                 value={formData.childName}
                 onChange={handleChange}
-                className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg"
+                className="h-10 sm:h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl text-sm sm:text-base shadow-sm"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="age" className="text-gray-700 font-medium">Child's Age</Label>
+              <Label htmlFor="age" className="text-slate-700 font-medium text-sm sm:text-base">Child's Age</Label>
               <Select value={formData.age} onValueChange={handleAgeChange}>
-                <SelectTrigger className="h-12 bg-white border-gray-200 text-gray-900 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg">
+                <SelectTrigger className="h-10 sm:h-12 bg-white border-slate-200 text-slate-900 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl text-sm sm:text-base shadow-sm">
                   <SelectValue placeholder="Select age" />
                 </SelectTrigger>
                 <SelectContent>
@@ -124,7 +133,7 @@ const Register = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-700 font-medium">Email</Label>
+              <Label htmlFor="email" className="text-slate-700 font-medium text-sm sm:text-base">Email</Label>
               <Input
                 id="email"
                 name="email"
@@ -132,12 +141,12 @@ const Register = () => {
                 placeholder="Enter your email"
                 value={formData.email}
                 onChange={handleChange}
-                className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg"
+                className="h-10 sm:h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl text-sm sm:text-base shadow-sm"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-700 font-medium">Password</Label>
+              <Label htmlFor="password" className="text-slate-700 font-medium text-sm sm:text-base">Password</Label>
               <Input
                 id="password"
                 name="password"
@@ -145,12 +154,12 @@ const Register = () => {
                 placeholder="Create a password"
                 value={formData.password}
                 onChange={handleChange}
-                className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg"
+                className="h-10 sm:h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl text-sm sm:text-base shadow-sm"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword" className="text-gray-700 font-medium">Confirm Password</Label>
+              <Label htmlFor="confirmPassword" className="text-slate-700 font-medium text-sm sm:text-base">Confirm Password</Label>
               <Input
                 id="confirmPassword"
                 name="confirmPassword"
@@ -158,25 +167,26 @@ const Register = () => {
                 placeholder="Confirm your password"
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg"
+                className="h-10 sm:h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl text-sm sm:text-base shadow-sm"
                 required
               />
             </div>
             <Button 
               type="submit" 
               size="lg" 
-              className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
+              disabled={loading}
+              className="w-full h-10 sm:h-12 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 text-sm sm:text-base"
             >
-              Create Account
+              {loading ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
-          <div className="mt-6 text-center">
-            <p className="text-gray-600">
+          <div className="mt-4 sm:mt-6 text-center">
+            <p className="text-slate-600 text-sm sm:text-base">
               Already have an account?{" "}
               <Button
                 variant="link"
                 onClick={() => navigate("/login")}
-                className="p-0 h-auto font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                className="p-0 h-auto font-medium text-amber-600 hover:text-amber-700 transition-colors text-sm sm:text-base"
               >
                 Sign in
               </Button>

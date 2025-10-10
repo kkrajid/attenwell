@@ -6,12 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Camera, CameraOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import apiService from "@/services/api";
 import Webcam from "react-webcam";
 import * as tf from "@tensorflow/tfjs";
 import * as faceLandmarksDetection from "@tensorflow-models/face-landmarks-detection";
 
 const Focus = () => {
   const navigate = useNavigate();
+  const { isAuthenticated, loading } = useAuth();
   const videoRef = useRef(null);
   const detectionIntervalRef = useRef(null);
   const sessionSavedRef = useRef(false); // Flag to prevent duplicate saving
@@ -46,14 +49,32 @@ const Focus = () => {
   const [noFaceDetectedTime, setNoFaceDetectedTime] = useState(0);
   const [lastFaceDetectionTime, setLastFaceDetectionTime] = useState(Date.now());
 
+  // Authentication check
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   // Load parent settings and initialize face detection model on component mount
   useEffect(() => {
-    const savedSettings = localStorage.getItem("parent_settings");
-    if (savedSettings) {
-      const settings = JSON.parse(savedSettings);
-      setParentSettings(settings);
-    }
+    if (!isAuthenticated || loading) return;
+
+    const loadParentSettings = async () => {
+      try {
+        const settingsData = await apiService.getParentSettings();
+        setParentSettings({
+          studyTimeHours: settingsData.study_time_hours,
+          breakTimeHours: settingsData.break_time_hours,
+        });
+      } catch (error) {
+        console.error("Error loading parent settings:", error);
+        // Use default settings if API fails
+        setParentSettings({ studyTimeHours: 0.5, breakTimeHours: 0.25 });
+      }
+    };
+
+    loadParentSettings();
 
     // Initialize audio context
     audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -417,22 +438,22 @@ const Focus = () => {
           if (!isDetected && currentMode === "study") {
             const noFaceTime = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
             
-            if (noFaceTime >= 10 && noFaceTime < 15) {
-              // First warning after 10 seconds
+            if (noFaceTime >= 5 && noFaceTime < 8) {
+              // First warning after 5 seconds
               playWarningSound();
-              toast.warning("⚠️ No face detected for 10 seconds. Please position yourself in front of the camera", {
+              toast.warning("⚠️ No face detected for 5 seconds. Please position yourself in front of the camera", {
                 duration: 3000
               });
-            } else if (noFaceTime >= 20 && noFaceTime < 25) {
-              // Second warning after 20 seconds
+            } else if (noFaceTime >= 10 && noFaceTime < 13) {
+              // Second warning after 10 seconds
               playWarningSound();
-              toast.error("🚨 No face detected for 20 seconds! Please return to your study position", {
+              toast.error("🚨 No face detected for 10 seconds! Please return to your study position", {
                 duration: 4000
               });
-            } else if (noFaceTime >= 30) {
-              // Continuous warning sound for 30+ seconds
+            } else if (noFaceTime >= 15) {
+              // Continuous warning sound for 15+ seconds
               playWarningSound();
-              toast.error("⚠️ CRITICAL: No face detected for 30+ seconds. Please return to your position!", {
+              toast.error("⚠️ CRITICAL: No face detected for 15+ seconds. Please return to your position!", {
                 duration: 2000
               });
             }
@@ -442,8 +463,8 @@ const Focus = () => {
         }
       };
 
-      // Run detection every 3 seconds (more mobile-friendly)
-      detectionIntervalRef.current = setInterval(detectFaces, 3000);
+      // Run detection every 1 second for continuous monitoring
+      detectionIntervalRef.current = setInterval(detectFaces, 1000);
 
       // Run first detection after a delay to ensure video is ready
       setTimeout(() => {
@@ -474,27 +495,27 @@ const Focus = () => {
         if (!isDetected && currentMode === "study") {
           const noFaceTime = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
           
-          if (noFaceTime >= 10 && noFaceTime < 15) {
-            // First warning after 10 seconds
+          if (noFaceTime >= 5 && noFaceTime < 8) {
+            // First warning after 5 seconds
             playWarningSound();
-            toast.warning("⚠️ No face detected for 10 seconds. Please position yourself in front of the camera", {
+            toast.warning("⚠️ No face detected for 5 seconds. Please position yourself in front of the camera", {
               duration: 3000
             });
-          } else if (noFaceTime >= 20 && noFaceTime < 25) {
-            // Second warning after 20 seconds
+          } else if (noFaceTime >= 10 && noFaceTime < 13) {
+            // Second warning after 10 seconds
             playWarningSound();
-            toast.error("🚨 No face detected for 20 seconds! Please return to your study position", {
+            toast.error("🚨 No face detected for 10 seconds! Please return to your study position", {
               duration: 4000
             });
-          } else if (noFaceTime >= 30) {
-            // Continuous warning sound for 30+ seconds
+          } else if (noFaceTime >= 15) {
+            // Continuous warning sound for 15+ seconds
             playWarningSound();
-            toast.error("⚠️ CRITICAL: No face detected for 30+ seconds. Please return to your position!", {
+            toast.error("⚠️ CRITICAL: No face detected for 15+ seconds. Please return to your position!", {
               duration: 2000
             });
           }
         }
-      }, 3000); // Check every 3 seconds
+      }, 1000); // Check every 1 second for continuous monitoring
     }
   };
 
@@ -551,7 +572,7 @@ const Focus = () => {
     }
   };
 
-  const saveSession = useCallback((status = "completed", isSuddenClosure = false) => {
+  const saveSession = useCallback(async (status = "completed", isSuddenClosure = false) => {
     try {
       // Prevent duplicate saving
       if (sessionSavedRef.current) {
@@ -561,13 +582,19 @@ const Focus = () => {
 
       sessionSavedRef.current = true;
 
-      const sessions = JSON.parse(localStorage.getItem("focus_sessions") || "[]");
-
       // Calculate final actual times including current phase
-      const finalActualStudyTime = actualStudyTime + (currentMode === "study" && sessionStartTime ?
-        Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
-      const finalActualBreakTime = actualBreakTime + (currentMode === "break" && sessionStartTime ?
-        Math.floor((Date.now() - sessionStartTime) / 60000) : 0);
+      let finalActualStudyTime = actualStudyTime;
+      let finalActualBreakTime = actualBreakTime;
+      
+      // Add current phase time if session is active
+      if (sessionStartTime) {
+        const currentPhaseTime = Math.floor((Date.now() - sessionStartTime) / 60000);
+        if (currentMode === "study") {
+          finalActualStudyTime += currentPhaseTime;
+        } else if (currentMode === "break") {
+          finalActualBreakTime += currentPhaseTime;
+        }
+      }
 
       // Determine if session was properly completed
       const isProperlyCompleted = status === "completed" &&
@@ -579,33 +606,40 @@ const Focus = () => {
         totalPhases: sessionPlan.length,
         isProperlyCompleted,
         finalStatus: isProperlyCompleted ? "completed" : "cancelled",
-        isSuddenClosure
+        isSuddenClosure,
+        actualStudyTime,
+        actualBreakTime,
+        finalActualStudyTime,
+        finalActualBreakTime,
+        sessionStartTime,
+        currentMode
       });
 
       const sessionData = {
-        type: isSuddenClosure ? "focus_sudden_closure" : "focus",
-        studyTimeHours: parentSettings.studyTimeHours,
-        breakTimeHours: parentSettings.breakTimeHours,
-        totalStudyTime: totalStudyTime,
-        totalBreakTime: totalBreakTime,
-        actualStudyTime: finalActualStudyTime,
-        actualBreakTime: finalActualBreakTime,
-        totalPhases: sessionPlan.length,
-        completedPhases: currentPhaseIndex + 1,
-        sessionPlan: sessionPlan,
-        timestamp: new Date().toISOString(),
-        totalDuration: finalActualStudyTime + finalActualBreakTime,
-        status: isProperlyCompleted ? "completed" : "cancelled",
-        completionPercentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100)
+        total_time_minutes: totalStudyTime + totalBreakTime,
+        total_study_time: totalStudyTime,
+        total_break_time: totalBreakTime,
+        actual_study_time: finalActualStudyTime,
+        actual_break_time: finalActualBreakTime,
+        session_plan: sessionPlan,
+        total_phases: sessionPlan.length,
+        completed_phases: currentPhaseIndex + 1,
+        is_sudden_closure: isSuddenClosure,
+        status: isSuddenClosure ? "sudden_closure" : (isProperlyCompleted ? "completed" : "cancelled"),
+        completion_percentage: Math.round(((currentPhaseIndex + 1) / sessionPlan.length) * 100)
       };
 
-      sessions.push(sessionData);
-      localStorage.setItem("focus_sessions", JSON.stringify(sessions));
+      // Save to API
+      await apiService.createFocusSession(sessionData);
+      toast.success("Focus session saved!");
 
       // Update available break time only for completed sessions
       if (isProperlyCompleted) {
-        const currentBreakTime = parseInt(localStorage.getItem("available_break_time") || "0");
-        localStorage.setItem("available_break_time", (currentBreakTime + finalActualBreakTime).toString());
+        try {
+          await apiService.updateBreakTime(finalActualBreakTime);
+        } catch (error) {
+          console.error("Error updating break time:", error);
+        }
       }
 
       console.log("Session saved:", sessionData);
@@ -914,28 +948,53 @@ const Focus = () => {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading focus session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 p-2 sm:p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-2 sm:p-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate("/home")}
-            className="rounded-full text-gray-600 hover:text-gray-800 h-8 w-8 sm:h-10 sm:w-10"
+            onClick={() => {
+              if (isSessionActive && isRunning) {
+                // Show warning modal for active session
+                setShowNavigationWarning(true);
+              } else {
+                navigate("/home");
+              }
+            }}
+            className={`rounded-full h-8 w-8 sm:h-10 sm:w-10 transition-all ${
+              isSessionActive && isRunning 
+                ? 'text-red-600 hover:text-red-800 hover:bg-red-50 border-2 border-red-200' 
+                : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100'
+            }`}
+            title={isSessionActive && isRunning ? "Active session - click to see warning" : "Go back to home"}
           >
             <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">Focus Time</h1>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Focus Time</h1>
         </div>
 
         {!isSessionActive ? (
-          <Card className="bg-white shadow-lg border border-gray-100 rounded-2xl">
+          <Card className="bg-white shadow-xl border border-slate-200 rounded-3xl backdrop-blur-sm">
             <CardContent className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6">
               {/* Input Form */}
               <div className="space-y-3">
-                <Label htmlFor="totalTimeMinutes" className="text-gray-700 font-medium">Total Time (minutes)</Label>
+                <Label htmlFor="totalTimeMinutes" className="text-slate-700 font-medium">Total Time (minutes)</Label>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Input
                     id="totalTimeMinutes"
@@ -944,23 +1003,23 @@ const Focus = () => {
                     placeholder="e.g., 90"
                     value={totalTimeMinutes}
                     onChange={(e) => setTotalTimeMinutes(String(e.target.value))}
-                    className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg flex-1"
+                    className="h-12 bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:ring-amber-400/20 rounded-xl flex-1 shadow-sm"
                     min="1"
                     max="240"
                   />
-                  <Button onClick={createSessionPlan} className="h-12 bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">
+                  <Button onClick={createSessionPlan} className="h-12 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white w-full sm:w-auto rounded-xl shadow-lg hover:shadow-xl transition-all duration-300">
                     Create Plan
                   </Button>
                 </div>
                 
                 {/* Parent Settings Info */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
-                  <h4 className="text-xs sm:text-sm font-semibold text-blue-800 mb-2">⚙️ Parent Settings:</h4>
-                  <div className="text-xs text-blue-700 space-y-1">
+                <div className="bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200 rounded-xl p-3 sm:p-4 shadow-sm">
+                  <h4 className="text-xs sm:text-sm font-semibold text-amber-800 mb-2">⚙️ Parent Settings:</h4>
+                  <div className="text-xs text-amber-700 space-y-1">
                     <p>• <strong>Study Time:</strong> {Math.round(parentSettings.studyTimeHours * 60)} minutes per phase</p>
                     <p>• <strong>Break Time:</strong> {Math.round(parentSettings.breakTimeHours * 60)} minutes per phase</p>
                     <p>• <strong>Total Cycle:</strong> {Math.round((parentSettings.studyTimeHours + parentSettings.breakTimeHours) * 60)} minutes</p>
-                    <p className="text-blue-600 mt-2">💡 Your session will alternate between these parent-set times</p>
+                    <p className="text-amber-600 mt-2">💡 Your session will alternate between these parent-set times</p>
                   </div>
                 </div>
               </div>
@@ -969,30 +1028,30 @@ const Focus = () => {
               {sessionPlan.length > 0 && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <Card className="bg-orange-50 border-orange-200">
+                    <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200 shadow-lg rounded-xl hover:shadow-xl transition-shadow">
                       <CardContent className="p-4 sm:p-6 text-center">
-                        <p className="text-xs sm:text-sm text-gray-600 mb-2">📚 Total Study Time</p>
-                        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-orange-600 mb-2">
+                        <p className="text-xs sm:text-sm text-slate-600 mb-2 font-medium">📚 Total Study Time</p>
+                        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-amber-600 mb-2">
                           {Math.round(totalStudyTime)}
                         </div>
-                        <p className="text-xs sm:text-sm text-gray-600">minutes</p>
+                        <p className="text-xs sm:text-sm text-slate-600">minutes</p>
                       </CardContent>
                     </Card>
 
-                    <Card className="bg-green-50 border-green-200">
+                    <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200 shadow-lg rounded-xl hover:shadow-xl transition-shadow">
                       <CardContent className="p-4 sm:p-6 text-center">
-                        <p className="text-xs sm:text-sm text-gray-600 mb-2">🎮 Total Break Time</p>
-                        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-green-600 mb-2">
+                        <p className="text-xs sm:text-sm text-slate-600 mb-2 font-medium">🎮 Total Break Time</p>
+                        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-emerald-600 mb-2">
                           {Math.round(totalBreakTime)}
                         </div>
-                        <p className="text-xs sm:text-sm text-gray-600">minutes</p>
+                        <p className="text-xs sm:text-sm text-slate-600">minutes</p>
                       </CardContent>
                     </Card>
                   </div>
 
                   {/* Session Plan Details - Smart Display */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4">
-                    <h4 className="text-xs sm:text-sm font-semibold text-gray-800 mb-3">📋 Your Session Plan:</h4>
+                  <div className="bg-gradient-to-r from-slate-50 to-slate-100 border border-slate-200 rounded-xl p-3 sm:p-4 shadow-sm">
+                    <h4 className="text-xs sm:text-sm font-semibold text-slate-800 mb-3">📋 Your Session Plan:</h4>
 
                     {/* Pattern Summary - Always show for more than 3 phases */}
                     {sessionPlan.length > 3 ? (
@@ -1143,6 +1202,20 @@ const Focus = () => {
             {/* Camera Preview */}
             <Card className="shadow-[var(--shadow-soft)] animate-scale-in overflow-hidden">
               <CardContent className="p-0">
+                {/* Face Detection Status */}
+                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full ${faceDetected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
+                      <span className="text-sm font-medium text-gray-700">
+                        {faceDetected ? 'Face Detected' : 'No Face Detected'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {noFaceDetectedTime > 0 && `Missing: ${noFaceDetectedTime}s`}
+                    </div>
+                  </div>
+                </div>
                 <div className="relative bg-black aspect-video touch-none min-h-[200px] sm:min-h-[300px]">
                   {cameraEnabled ? (
                     <>
@@ -1366,6 +1439,30 @@ const Focus = () => {
                     />
                   </div>
                   
+                  {/* Continuous Face Monitoring Status */}
+                  {cameraEnabled && (
+                    <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${faceDetected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
+                          <span className="text-sm font-medium text-blue-800">
+                            Continuous Monitoring: {faceDetected ? 'Active' : 'Alert'}
+                          </span>
+                        </div>
+                        {noFaceDetectedTime > 0 && (
+                          <span className="text-xs text-red-600 font-medium">
+                            Missing: {noFaceDetectedTime}s
+                          </span>
+                        )}
+                      </div>
+                      {!faceDetected && noFaceDetectedTime > 5 && (
+                        <div className="mt-2 text-xs text-red-600">
+                          ⚠️ Please position yourself in front of the camera
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
                   {/* Overall Progress */}
                   <div className="flex justify-between text-sm text-gray-600 mt-3">
                     <span>Overall Progress</span>
@@ -1403,10 +1500,10 @@ const Focus = () => {
                       {/* Show first 4 phases */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {sessionPlan.slice(0, 4).map((phase, index) => (
-                          <div key={index} className={`p-2 rounded-lg text-center text-xs ${
-                            index < currentPhaseIndex ? "bg-green-100 text-green-800" :
-                            index === currentPhaseIndex ? (currentMode === "study" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800") :
-                            "bg-gray-100 text-gray-600"
+                          <div key={index} className={`p-2 rounded-xl text-center text-xs shadow-sm hover:shadow-md transition-shadow ${
+                            index < currentPhaseIndex ? "bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-800" :
+                            index === currentPhaseIndex ? (currentMode === "study" ? "bg-gradient-to-br from-amber-100 to-amber-200 text-amber-800" : "bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-800") :
+                            "bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600"
                           }`}>
                             <div className="font-medium">
                               {phase.type === "study" ? "📚" : "🎮"}
@@ -1420,7 +1517,7 @@ const Focus = () => {
 
                       {/* Show ellipsis */}
                       <div className="text-center py-1">
-                        <p className="text-xs text-gray-500">... {sessionPlan.length - 6} more phases ...</p>
+                        <p className="text-xs text-slate-500">... {sessionPlan.length - 6} more phases ...</p>
                       </div>
 
                       {/* Show last 2 phases */}
@@ -1428,10 +1525,10 @@ const Focus = () => {
                         {sessionPlan.slice(-2).map((phase, index) => {
                           const actualIndex = sessionPlan.length - 2 + index;
                           return (
-                            <div key={actualIndex} className={`p-2 rounded-lg text-center text-xs ${
-                              actualIndex < currentPhaseIndex ? "bg-green-100 text-green-800" :
-                              actualIndex === currentPhaseIndex ? (currentMode === "study" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800") :
-                              "bg-gray-100 text-gray-600"
+                            <div key={actualIndex} className={`p-2 rounded-xl text-center text-xs shadow-sm hover:shadow-md transition-shadow ${
+                              actualIndex < currentPhaseIndex ? "bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-800" :
+                              actualIndex === currentPhaseIndex ? (currentMode === "study" ? "bg-gradient-to-br from-amber-100 to-amber-200 text-amber-800" : "bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-800") :
+                              "bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600"
                             }`}>
                               <div className="font-medium">
                                 {phase.type === "study" ? "📚" : "🎮"}
