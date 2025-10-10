@@ -915,28 +915,28 @@ const Focus = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 p-2 sm:p-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => navigate("/home")}
-            className="rounded-full text-gray-600 hover:text-gray-800"
+            className="rounded-full text-gray-600 hover:text-gray-800 h-8 w-8 sm:h-10 sm:w-10"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
-          <h1 className="text-3xl font-bold text-blue-600">Focus Time</h1>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-blue-600">Focus Time</h1>
         </div>
 
         {!isSessionActive ? (
           <Card className="bg-white shadow-lg border border-gray-100 rounded-2xl">
-            <CardContent className="p-6 md:p-8 space-y-6">
+            <CardContent className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6">
               {/* Input Form */}
               <div className="space-y-3">
                 <Label htmlFor="totalTimeMinutes" className="text-gray-700 font-medium">Total Time (minutes)</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Input
                     id="totalTimeMinutes"
                     type="number"
@@ -944,18 +944,18 @@ const Focus = () => {
                     placeholder="e.g., 90"
                     value={totalTimeMinutes}
                     onChange={(e) => setTotalTimeMinutes(String(e.target.value))}
-                    className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg"
+                    className="h-12 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:ring-blue-400/20 rounded-lg flex-1"
                     min="1"
                     max="240"
                   />
-                  <Button onClick={createSessionPlan} className="h-12 bg-blue-600 hover:bg-blue-700 text-white">
+                  <Button onClick={createSessionPlan} className="h-12 bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">
                     Create Plan
                   </Button>
                 </div>
                 
                 {/* Parent Settings Info */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-blue-800 mb-2">⚙️ Parent Settings:</h4>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+                  <h4 className="text-xs sm:text-sm font-semibold text-blue-800 mb-2">⚙️ Parent Settings:</h4>
                   <div className="text-xs text-blue-700 space-y-1">
                     <p>• <strong>Study Time:</strong> {Math.round(parentSettings.studyTimeHours * 60)} minutes per phase</p>
                     <p>• <strong>Break Time:</strong> {Math.round(parentSettings.breakTimeHours * 60)} minutes per phase</p>
@@ -968,31 +968,31 @@ const Focus = () => {
               {/* Session Plan Display */}
               {sessionPlan.length > 0 && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <Card className="bg-orange-50 border-orange-200">
-                      <CardContent className="p-6 text-center">
-                        <p className="text-sm text-gray-600 mb-2">📚 Total Study Time</p>
-                        <div className="text-4xl font-bold text-orange-600 mb-2">
+                      <CardContent className="p-4 sm:p-6 text-center">
+                        <p className="text-xs sm:text-sm text-gray-600 mb-2">📚 Total Study Time</p>
+                        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-orange-600 mb-2">
                           {Math.round(totalStudyTime)}
                         </div>
-                        <p className="text-sm text-gray-600">minutes</p>
+                        <p className="text-xs sm:text-sm text-gray-600">minutes</p>
                       </CardContent>
                     </Card>
 
                     <Card className="bg-green-50 border-green-200">
-                      <CardContent className="p-6 text-center">
-                        <p className="text-sm text-gray-600 mb-2">🎮 Total Break Time</p>
-                        <div className="text-4xl font-bold text-green-600 mb-2">
+                      <CardContent className="p-4 sm:p-6 text-center">
+                        <p className="text-xs sm:text-sm text-gray-600 mb-2">🎮 Total Break Time</p>
+                        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-green-600 mb-2">
                           {Math.round(totalBreakTime)}
                         </div>
-                        <p className="text-sm text-gray-600">minutes</p>
+                        <p className="text-xs sm:text-sm text-gray-600">minutes</p>
                       </CardContent>
                     </Card>
                   </div>
 
                   {/* Session Plan Details - Smart Display */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <h4 className="text-sm font-semibold text-gray-800 mb-3">📋 Your Session Plan:</h4>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4">
+                    <h4 className="text-xs sm:text-sm font-semibold text-gray-800 mb-3">📋 Your Session Plan:</h4>
 
                     {/* Pattern Summary - Always show for more than 3 phases */}
                     {sessionPlan.length > 3 ? (
@@ -1129,10 +1129,11 @@ const Focus = () => {
                 <Button
                   onClick={startSession}
                   size="xl"
-                  className="w-full gap-2 bg-orange-600 hover:bg-orange-700 text-white"
+                  className="w-full gap-2 bg-orange-600 hover:bg-orange-700 text-white h-12 sm:h-14 text-sm sm:text-base"
                 >
-                  <Camera className="h-5 w-5" />
-                  Start Focus Session with Monitoring
+                  <Camera className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <span className="hidden sm:inline">Start Focus Session with Monitoring</span>
+                  <span className="sm:hidden">Start Session</span>
                 </Button>
               )}
             </CardContent>
@@ -1142,7 +1143,7 @@ const Focus = () => {
             {/* Camera Preview */}
             <Card className="shadow-[var(--shadow-soft)] animate-scale-in overflow-hidden">
               <CardContent className="p-0">
-                <div className="relative bg-black aspect-video touch-none">
+                <div className="relative bg-black aspect-video touch-none min-h-[200px] sm:min-h-[300px]">
                   {cameraEnabled ? (
                     <>
                       <Webcam
@@ -1187,35 +1188,42 @@ const Focus = () => {
                         className="absolute top-0 left-0 w-full h-full pointer-events-none"
                         style={{ mixBlendMode: 'normal' }}
                       />
-                      <div className="absolute top-4 left-4 flex items-center gap-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm">
-                        <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                        {isModelLoaded ? "AI Monitoring" : "Monitoring"}
+                      <div className="absolute top-2 left-2 sm:top-4 sm:left-4 flex items-center gap-1 sm:gap-2 bg-red-500 text-white px-2 py-1 sm:px-3 sm:py-1 rounded-full text-xs sm:text-sm">
+                        <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse" />
+                        <span className="hidden sm:inline">{isModelLoaded ? "AI Monitoring" : "Monitoring"}</span>
+                        <span className="sm:hidden">{isModelLoaded ? "AI" : "Mon"}</span>
                       </div>
-                      <div className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
+                      <div className={`absolute top-2 right-2 sm:top-4 sm:right-4 flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1 rounded-full text-xs sm:text-sm ${
                         faceDetected ? "bg-green-500 text-white" : noFaceDetectedTime > 20 ? "bg-red-500 text-white" : "bg-yellow-500 text-white"
                       }`}>
-                        <div className={`w-2 h-2 rounded-full ${
+                        <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
                           faceDetected ? "bg-white" : "bg-white animate-pulse"
                         }`} />
-                        {faceDetected ? "✓ Face Detected" : noFaceDetectedTime > 0 ? `⚠ No Face ${noFaceDetectedTime}s` : "⚠ Looking for Face"}
+                        <span className="hidden sm:inline">
+                          {faceDetected ? "✓ Face Detected" : noFaceDetectedTime > 0 ? `⚠ No Face ${noFaceDetectedTime}s` : "⚠ Looking for Face"}
+                        </span>
+                        <span className="sm:hidden">
+                          {faceDetected ? "✓" : noFaceDetectedTime > 0 ? `${noFaceDetectedTime}s` : "⚠"}
+                        </span>
                       </div>
                       {isModelLoaded && (
-                        <div className="absolute bottom-4 left-4 bg-blue-500/80 text-white px-2 py-1 rounded text-xs">
-                          🤖 TensorFlow.js Active
+                        <div className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4 bg-blue-500/80 text-white px-1 py-0.5 sm:px-2 sm:py-1 rounded text-xs">
+                          <span className="hidden sm:inline">🤖 TensorFlow.js Active</span>
+                          <span className="sm:hidden">🤖 AI</span>
                         </div>
                       )}
                     </>
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-4">
-                      <CameraOff className="h-12 w-12 mb-4" />
-                      <p className="text-sm font-medium mb-2">Camera not available</p>
-                      <div className="text-xs text-center space-y-1 mb-4">
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-3 sm:p-4">
+                      <CameraOff className="h-8 w-8 sm:h-12 sm:w-12 mb-3 sm:mb-4" />
+                      <p className="text-xs sm:text-sm font-medium mb-2 text-center">Camera not available</p>
+                      <div className="text-xs text-center space-y-1 mb-3 sm:mb-4">
                         <p>• Grant camera permission when prompted</p>
                         <p>• Make sure you're using HTTPS or localhost</p>
                         <p>• Close other camera applications</p>
                         <p>• Refresh the page if needed</p>
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-2 w-full max-w-xs">
                         <Button 
                           onClick={() => {
                             setFaceDetected(true);
@@ -1250,16 +1258,16 @@ const Focus = () => {
               <Card className={`shadow-lg animate-pulse ${
                 noFaceDetectedTime > 20 ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"
               }`}>
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="text-2xl">{noFaceDetectedTime > 20 ? "🚨" : "👤"}</div>
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <div className="text-xl sm:text-2xl">{noFaceDetectedTime > 20 ? "🚨" : "👤"}</div>
                     <div className="flex-1">
-                      <h4 className={`font-semibold mb-2 ${
+                      <h4 className={`font-semibold mb-2 text-sm sm:text-base ${
                         noFaceDetectedTime > 20 ? "text-red-800" : "text-yellow-800"
                       }`}>
                         {noFaceDetectedTime > 20 ? "CRITICAL: No Face Detected!" : "Face Not Detected!"}
                       </h4>
-                      <p className={`text-sm mb-3 ${
+                      <p className={`text-xs sm:text-sm mb-3 ${
                         noFaceDetectedTime > 20 ? "text-red-700" : "text-yellow-700"
                       }`}>
                         {noFaceDetectedTime > 0 
@@ -1267,22 +1275,22 @@ const Focus = () => {
                           : "Please position yourself in front of the camera for proper monitoring during study time."
                         }
                       </p>
-                      <div className="flex gap-2">
-                      <Button 
-                        size="sm" 
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Button 
+                          size="sm" 
                           onClick={() => {
                             setFaceDetected(true);
                             setNoFaceDetectedTime(0);
                             setLastFaceDetectionTime(Date.now());
                           }}
-                          className={`${
+                          className={`w-full sm:w-auto ${
                             noFaceDetectedTime > 20 
                               ? "bg-red-600 hover:bg-red-700 text-white" 
                               : "bg-yellow-600 hover:bg-yellow-700 text-white"
                           }`}
-                      >
-                        I'm Here - Continue Monitoring
-                      </Button>
+                        >
+                          I'm Here - Continue Monitoring
+                        </Button>
                         {noFaceDetectedTime > 20 && (
                           <Button 
                             size="sm" 
@@ -1293,7 +1301,7 @@ const Focus = () => {
                               setLastFaceDetectionTime(Date.now());
                               toast.success("Monitoring resumed - please stay in position!");
                             }}
-                            className="border-red-300 text-red-600 hover:bg-red-50"
+                            className="w-full sm:w-auto border-red-300 text-red-600 hover:bg-red-50"
                           >
                             Resume Monitoring
                           </Button>
@@ -1310,7 +1318,7 @@ const Focus = () => {
             <Card className={`shadow-[var(--shadow-soft)] ${
               currentMode === "study" ? "border-orange-200" : "border-green-200"
             }`}>
-              <CardContent className="p-6 md:p-8 space-y-6">
+              <CardContent className="p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6">
                 {/* Current Mode Badge */}
                 <div className="text-center">
                   <span className={`inline-block px-4 py-2 rounded-full text-sm font-medium ${
@@ -1324,15 +1332,15 @@ const Focus = () => {
 
                 {/* Timer Display */}
                 <div className="text-center">
-                  <div className={`text-6xl md:text-7xl font-bold mb-4 ${
+                  <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-3 sm:mb-4 ${
                     currentMode === "study" ? "text-orange-600" : "text-green-600"
                   }`}>
                     {formatTime(timeLeft)}
                   </div>
-                  <p className="text-gray-600">
+                  <p className="text-sm sm:text-base text-gray-600">
                     {currentMode === "study" ? "Stay focused and avoid distractions" : "Take a well-deserved break!"}
                   </p>
-                  <p className="text-sm text-blue-600 mt-2">
+                  <p className="text-xs sm:text-sm text-blue-600 mt-2">
                     Phase {currentPhaseIndex + 1} of {sessionPlan.length}
                   </p>
                 </div>
@@ -1489,23 +1497,28 @@ const Focus = () => {
                 </div>
 
                 {/* Control Buttons */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Button
                     size="lg"
                     disabled
-                    className={`gap-2 ${
+                    className={`gap-2 h-12 sm:h-14 text-sm sm:text-base ${
                       currentMode === "study" 
                         ? "bg-orange-100 text-orange-800 border border-orange-200" 
                         : "bg-green-100 text-green-800 border border-green-200"
                     }`}
                   >
-                    {currentMode === "study" ? "📚 Study Phase..." : "🎮 Break Phase..."}
+                    <span className="hidden sm:inline">
+                      {currentMode === "study" ? "📚 Study Phase..." : "🎮 Break Phase..."}
+                    </span>
+                    <span className="sm:hidden">
+                      {currentMode === "study" ? "📚 Study..." : "🎮 Break..."}
+                    </span>
                   </Button>
                   <Button
                     variant="outline"
                     size="lg"
                     onClick={stopSession}
-                    className="gap-2 border-red-200 text-red-600 hover:bg-red-50 no-block"
+                    className="gap-2 border-red-200 text-red-600 hover:bg-red-50 no-block h-12 sm:h-14 text-sm sm:text-base"
                   >
                     Stop Session
                   </Button>
