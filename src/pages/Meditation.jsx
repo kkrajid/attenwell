@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Play, Pause, Square } from "lucide-react";
+import { ArrowLeft, Play, Pause, Square, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import apiService from "@/services/api";
@@ -52,7 +52,6 @@ const Meditation = () => {
     }
   }, [selectedTime, timeLeft]);
 
-  // Authentication check
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       navigate("/login");
@@ -83,7 +82,6 @@ const Meditation = () => {
     return () => clearInterval(interval);
   }, [isRunning, timeLeft, saveSession, backgroundMusic]);
 
-  // Update audio source when selected time changes
   useEffect(() => {
     if (audioRef.current && backgroundMusic) {
       audioRef.current.src = getAudioFile(selectedTime);
@@ -133,6 +131,16 @@ const Meditation = () => {
     }
   };
 
+  const handleReset = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setIsRunning(false);
+    setIsPaused(false);
+    setSelectedTime(5);
+    setTimeLeft(5 * 60);
+  };
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -142,10 +150,10 @@ const Meditation = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading meditation...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-800 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading meditation...</p>
         </div>
       </div>
     );
@@ -154,8 +162,8 @@ const Meditation = () => {
   if (!isAuthenticated) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-4">
-      {/* Hidden Background Music - Auto-sync with timer */}
+    <div className="min-h-screen bg-white flex flex-col">
+      {/* Hidden Background Music */}
       {backgroundMusic && (
         <audio
           ref={audioRef}
@@ -167,123 +175,256 @@ const Meditation = () => {
         />
       )}
 
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/home")}
-              className="rounded-full text-slate-600 hover:text-slate-800 hover:bg-slate-100"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Meditation</h1>
+      {/* Elegant Header */}
+      <header className="bg-white px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between max-w-2xl mx-auto">
+          <button
+            onClick={() => navigate("/home")}
+            className="w-11 h-11 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center hover:bg-gray-100 transition-colors"
+          >
+            <ArrowLeft className="h-6 w-6 text-slate-800" />
+          </button>
+          
+          <div className="flex flex-col items-center">
+            <h1 className="text-[13px] font-bold text-slate-800 tracking-[2.5px]">
+              MEDITATION
+            </h1>
+            <div className="w-10 h-0.5 bg-amber-600 rounded mt-1" />
           </div>
-          <div className="flex items-center gap-2">
-            {backgroundMusic && (
-              <div className="flex items-center gap-2 bg-gradient-to-r from-violet-100 to-violet-200 text-violet-800 px-3 py-1 rounded-xl shadow-sm">
-                <span className="text-sm">🎵</span>
-                <span className="text-sm font-medium">
-                  {isRunning ? "Music Playing" : isPaused ? "Music Paused" : "Music Ready"}
+          
+          <div className="w-11" />
+        </div>
+      </header>
+
+      {/* Main Content - Vertical Space Between */}
+      <div className="flex-1 flex flex-col justify-between px-5 py-5 max-w-2xl mx-auto w-full pb-12">
+        {/* Album Art Section */}
+        <div className="flex flex-col items-center pt-2">
+          <div className="relative w-[200px] h-[200px] mb-3 flex items-center justify-center">
+            {/* Animated Glow Rings */}
+            {isRunning && (
+              <>
+                <div className="absolute w-[180px] h-[180px] rounded-full border border-amber-600 animate-ping-slow" />
+                <div className="absolute w-[200px] h-[200px] rounded-full border border-amber-600 animate-ping-slower" />
+                <div className="absolute w-[220px] h-[220px] rounded-full bg-amber-600 opacity-10 animate-pulse-glow" />
+              </>
+            )}
+            
+            {/* Premium Album Art */}
+            <div className={`relative z-10 w-[160px] h-[160px] rounded-full bg-white p-0.75 shadow-2xl border border-gray-100 ${isRunning ? 'animate-pulse-breath' : ''}`}>
+              <div className="w-full h-full rounded-full bg-gradient-to-br from-gray-50 to-white p-0.5 border border-gray-200">
+                <img 
+                  src={meditationScene}
+                  alt="Deep Meditation" 
+                  className="w-full h-full rounded-full object-cover"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Track Info */}
+          <div className="flex flex-col items-center">
+            <h2 className="text-2xl font-light text-slate-800 tracking-wide mb-1.5">
+              Deep Meditation
+            </h2>
+            <div className="w-12 h-px bg-amber-600 mb-1.5" />
+            <p className="text-[11px] text-gray-500 font-medium tracking-widest uppercase">
+              {selectedTime} Minute Journey
+            </p>
+            
+            {isRunning && (
+              <div className="flex items-center gap-1.5 bg-gray-50 px-3.5 py-1.5 rounded-full mt-2 border border-gray-200">
+                <div className="flex items-center justify-center w-3 h-3 rounded-full bg-amber-500">
+                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-300 animate-pulse" />
+                </div>
+                <span className="text-[9px] font-bold text-slate-700 tracking-wider">
+                  NOW PLAYING
                 </span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Main Card */}
-        <Card className="bg-white shadow-xl border border-slate-200 rounded-3xl backdrop-blur-sm">
-          <CardContent className="p-6 md:p-8 space-y-6">
-            {/* Meditation Image */}
-            <div className="rounded-2xl overflow-hidden bg-gradient-to-br from-violet-50 to-violet-100 p-4 shadow-sm">
-              <img
-                src={meditationScene}
-                alt="Peaceful meditation"
-                className="w-full h-auto rounded-xl"
-              />
-            </div>
+        {/* Duration Selection */}
+        <div className="py-1">
+          <div className="flex items-center mb-2.5">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-[9px] font-bold text-gray-400 tracking-[1.5px] mx-3">
+              SELECT DURATION
+            </span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+          
+          <div className="flex gap-2.5">
+            {timeOptions.map((time) => (
+              <button
+                key={time}
+                onClick={() => handleTimeSelect(time)}
+                disabled={isRunning}
+                className={`relative flex-1 flex flex-col items-center py-3 rounded-[14px] border-2 transition-all duration-300 ${
+                  selectedTime === time
+                    ? 'bg-slate-800 border-slate-800 shadow-lg'
+                    : 'bg-white border-gray-200 hover:border-gray-300'
+                } ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <span className={`text-xl font-semibold ${
+                  selectedTime === time ? 'text-white' : 'text-slate-700'
+                }`}>
+                  {time}
+                </span>
+                <span className={`text-[8px] font-bold tracking-wider ${
+                  selectedTime === time ? 'text-gray-300' : 'text-gray-400'
+                }`}>
+                  MIN
+                </span>
+                {selectedTime === time && (
+                  <div className="absolute -bottom-0.5 w-6 h-0.5 bg-amber-600 rounded-t" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
 
-            {/* Timer Display */}
-            <div className="text-center">
-              <div className="text-6xl md:text-7xl font-bold bg-gradient-to-r from-violet-600 to-violet-800 bg-clip-text text-transparent mb-4">
-                {formatTime(timeLeft)}
-              </div>
-              <p className="text-slate-600">
-                {isRunning ? "Session in progress..." : isPaused ? "Paused" : "Ready to meditate"}
-              </p>
-              {backgroundMusic && (
-                <div className="mt-4 bg-gradient-to-r from-violet-50 to-violet-100 border border-violet-200 rounded-xl p-3 shadow-sm">
-                  <div className="flex items-center justify-center gap-2 text-violet-700">
-                    <span className="text-lg">🎵</span>
-                    <span className="text-sm font-medium">
-                      {isRunning ? "Background music is playing" : isPaused ? "Music paused with meditation" : "Music ready to play"}
-                    </span>
-                  </div>
-                  <p className="text-xs text-violet-600 mt-1">
-                    Music automatically syncs with your meditation timer
-                  </p>
-                </div>
+        {/* Progress Section */}
+        <div className="py-1">
+          <div className="mb-2.5">
+            <div className="relative h-0.75 bg-gray-100 rounded-full overflow-visible">
+              <div 
+                className="absolute h-full bg-gradient-to-r from-amber-600 to-yellow-500 rounded-full transition-all duration-300"
+                style={{ width: `${((selectedTime * 60 - timeLeft) / (selectedTime * 60)) * 100}%` }}
+              />
+              {timeLeft < selectedTime * 60 && (
+                <div 
+                  className="absolute top-1/2 -translate-y-1/2 w-[18px] h-[18px] bg-white rounded-full border-[3px] border-amber-600 shadow-md"
+                  style={{ left: `${((selectedTime * 60 - timeLeft) / (selectedTime * 60)) * 100}%`, marginLeft: '-9px' }}
+                />
               )}
             </div>
-
-            {/* Time Selector */}
-            <div className="space-y-3">
-              <p className="text-sm font-medium text-center text-slate-700">Select Duration (minutes)</p>
-              <div className="grid grid-cols-4 gap-2">
-                {timeOptions.map((time) => (
-                  <Button
-                    key={time}
-                    variant={selectedTime === time ? "default" : "outline"}
-                    onClick={() => handleTimeSelect(time)}
-                    disabled={isRunning}
-                    className={`h-12 rounded-xl ${selectedTime === time ? 'bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white shadow-lg' : 'border-slate-200 text-slate-700 hover:bg-violet-50 hover:border-violet-300'}`}
-                  >
-                    {time}
-                  </Button>
-                ))}
-              </div>
+          </div>
+          
+          <div className="flex items-center justify-between px-1">
+            <div className="flex flex-col items-center flex-1">
+              <span className="text-[8px] font-bold text-gray-400 tracking-wider mb-1">
+                CURRENT
+              </span>
+              <span className="text-base font-semibold text-slate-800 tracking-wide">
+                {formatTime(selectedTime * 60 - timeLeft)}
+              </span>
             </div>
-
-            {/* Control Buttons */}
-            <div className="grid grid-cols-3 gap-3">
-              <Button
-                size="lg"
-                onClick={handlePlay}
-                disabled={isRunning}
-                className="gap-2 bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
-              >
-                <Play className="h-5 w-5" />
-                Play
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handlePause}
-                disabled={!isRunning}
-                className="gap-2 border-slate-200 text-slate-700 hover:bg-violet-50 hover:border-violet-300 rounded-xl"
-              >
-                <Pause className="h-5 w-5" />
-                Pause
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={handleStop}
-                disabled={!isRunning && !isPaused}
-                className="gap-2 border-red-200 text-red-600 hover:bg-red-50 rounded-xl"
-              >
-                <Square className="h-5 w-5" />
-                Stop
-              </Button>
+            <div className="w-px h-[26px] bg-gray-200 mx-3" />
+            <div className="flex flex-col items-center flex-1">
+              <span className="text-[8px] font-bold text-gray-400 tracking-wider mb-1">
+                TOTAL
+              </span>
+              <span className="text-base font-semibold text-slate-800 tracking-wide">
+                {formatTime(selectedTime * 60)}
+              </span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        {/* Control Buttons */}
+        <div className="flex items-center justify-center gap-4 py-1">
+          <button
+            onClick={handleReset}
+            className="flex flex-col items-center justify-center w-[60px] h-[60px] bg-gray-50 rounded-full border-2 border-gray-200 hover:bg-gray-100 transition-colors shadow-sm"
+          >
+            <RotateCcw className="w-5 h-5 text-slate-700 mb-0.5" />
+            <span className="text-[7px] font-bold text-gray-500 tracking-wide">
+              RESET
+            </span>
+          </button>
+
+          <button
+            onClick={isRunning ? handlePause : handlePlay}
+            className="w-[78px] h-[78px] bg-slate-800 hover:bg-slate-900 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 border-[3px] border-slate-700"
+          >
+            {isRunning ? (
+              <Pause className="h-[42px] w-[42px] text-white" />
+            ) : (
+              <Play className="h-[42px] w-[42px] text-white ml-1" />
+            )}
+          </button>
+
+          <button
+            onClick={handleStop}
+            className="flex flex-col items-center justify-center w-[60px] h-[60px] bg-gray-50 rounded-full border-2 border-gray-200 hover:bg-gray-100 transition-colors shadow-sm"
+          >
+            <Square className="w-5 h-5 text-slate-700 fill-slate-700 mb-0.5" />
+            <span className="text-[7px] font-bold text-gray-500 tracking-wide">
+              STOP
+            </span>
+          </button>
+        </div>
       </div>
+
+      <style jsx>{`
+        @keyframes ping-slow {
+          0% {
+            transform: scale(1);
+            opacity: 0.15;
+          }
+          50% {
+            transform: scale(1.15);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1.2);
+            opacity: 0;
+          }
+        }
+
+        @keyframes ping-slower {
+          0% {
+            transform: scale(1.1);
+            opacity: 0.1;
+          }
+          50% {
+            transform: scale(1.3);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1.4);
+            opacity: 0;
+          }
+        }
+
+        @keyframes pulse-breath {
+          0%, 100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.08);
+          }
+        }
+
+        @keyframes pulse-glow {
+          0%, 100% {
+            opacity: 0.08;
+          }
+          50% {
+            opacity: 0.18;
+          }
+        }
+
+        .animate-ping-slow {
+          animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
+        .animate-ping-slower {
+          animation: ping-slower 4s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
+        .animate-pulse-breath {
+          animation: pulse-breath 6s ease-in-out infinite;
+        }
+
+        .animate-pulse-glow {
+          animation: pulse-glow 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 };
 
 export default Meditation;
-

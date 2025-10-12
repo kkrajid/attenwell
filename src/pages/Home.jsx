@@ -24,9 +24,9 @@ const Home = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-800 mx-auto mb-4"></div>
           <p className="text-slate-600">Loading...</p>
         </div>
       </div>
@@ -36,96 +36,162 @@ const Home = () => {
   if (!user) return null;
 
   const navButtons = [
-    { text: "Meditation", icon: Brain, route: "/meditation", bgColor: "bg-gradient-to-br from-violet-500 to-violet-600", textColor: "text-white", shadowColor: "shadow-violet-200" },
-    { text: "Focus", icon: BookOpen, route: "/focus", bgColor: "bg-gradient-to-br from-amber-500 to-amber-600", textColor: "text-white", shadowColor: "shadow-amber-200" },
-    { text: "Games", icon: Gamepad2, route: "/game", bgColor: "bg-gradient-to-br from-emerald-500 to-emerald-600", textColor: "text-white", shadowColor: "shadow-emerald-200" },
-    { text: "Parent", icon: User, route: "/parent", bgColor: "bg-gradient-to-br from-slate-600 to-slate-700", textColor: "text-white", shadowColor: "shadow-slate-200" },
+    { 
+      text: "Meditation", 
+      icon: Brain, 
+      route: "/meditation",
+      iconName: "leaf",
+      bgColor: "bg-[#FFF9F0]",
+      borderColor: "border-[#F5E6D3]",
+      iconColor: "text-[#C9A96E]"
+    },
+    { 
+      text: "Focus", 
+      icon: BookOpen, 
+      route: "/focus",
+      iconName: "eye",
+      bgColor: "bg-[#F8F9FA]",
+      borderColor: "border-[#E8E8E8]",
+      iconColor: "text-[#2C3E50]"
+    },
+    { 
+      text: "Game", 
+      icon: Gamepad2, 
+      route: "/game",
+      iconName: "game-controller",
+      bgColor: "bg-[#F5F5F5]",
+      borderColor: "border-[#E0E0E0]",
+      iconColor: "text-[#5D6D7E]"
+    },
+    { 
+      text: "Parent", 
+      icon: User, 
+      route: "/parent",
+      iconName: "people",
+      bgColor: "bg-[#FAFAFA]",
+      borderColor: "border-[#ECECEC]",
+      iconColor: "text-[#95A5A6]"
+    },
   ];
 
+  const getSubtext = (text) => {
+    switch(text) {
+      case "Meditation": return "Find inner peace";
+      case "Focus": return "Improve concentration";
+      case "Game": return "Fun learning";
+      case "Parent": return "Family section";
+      default: return "";
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100 p-4">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <header className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-amber-100 to-amber-200 rounded-full flex items-center justify-center border-2 border-amber-300 shadow-xl">
-              <img src={logo} alt="AttenWell" className="w-8 h-8 rounded-full" />
-            </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">AttenWell</h1>
+    <div className="min-h-screen bg-white flex flex-col">
+      {/* Elegant Header */}
+      <header className="bg-white px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          {/* Logo Section */}
+          <div className="w-14 h-14 rounded-full bg-gray-50 border-2 border-gray-200 p-0.75 shadow-md">
+            <img 
+              src={logo} 
+              alt="AttenWell" 
+              className="w-full h-full rounded-full object-contain"
+            />
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full flex items-center justify-center border-2 border-slate-300 shadow-md">
-              <span className="text-slate-700 font-semibold text-sm">
-                {user.parent_name?.charAt(0) || "P"}
-              </span>
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-medium text-slate-700">{user.parent_name}</p>
-              <p className="text-xs text-slate-500">{user.email}</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-full">
-            <LogOut className="h-5 w-5" />
-          </Button>
+
+          {/* Center Branding */}
+          <div className="flex-1 flex flex-col items-center mx-3">
+            <h1 className="text-sm font-bold text-slate-800 tracking-[2.5px] mb-1">
+              ATTENWELL
+            </h1>
+            <div className="w-15 h-0.5 bg-amber-600 rounded mb-1.5" />
+            <p className="text-[11px] text-gray-500 font-medium tracking-wide uppercase">
+              Your Wellness Journey
+            </p>
+          </div>
+
+          {/* Hamburger Menu */}
+          <button className="w-11 h-11 rounded-full bg-gray-50 border-2 border-gray-200 flex flex-col items-center justify-center gap-0.5">
+            <div className="w-4.5 h-0.5 bg-slate-800 rounded" />
+            <div className="w-4.5 h-0.5 bg-slate-800 rounded" />
+            <div className="w-4.5 h-0.5 bg-slate-800 rounded" />
+          </button>
         </div>
       </header>
 
-        {/* Profile Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] backdrop-blur-sm">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full flex items-center justify-center border-2 border-slate-300 shadow-lg">
-                  <span className="text-slate-700 font-bold text-2xl">
-                    {user.parent_name?.charAt(0) || "P"}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500 font-medium">Parent</p>
-                  <h3 className="text-xl font-bold text-slate-800">{user.parent_name}</h3>
-                  <p className="text-sm text-slate-500">{user.email}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-          <Card className="bg-white shadow-xl border border-slate-200 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] backdrop-blur-sm">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-full flex items-center justify-center border-2 border-emerald-300 shadow-lg">
-                  <span className="text-emerald-700 font-bold text-2xl">
-                    {user.child_name?.charAt(0) || "C"}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500 font-medium">Child</p>
-                  <h3 className="text-xl font-bold text-slate-800">{user.child_name}</h3>
-                  <p className="text-sm text-slate-500">{user.child_age} years old</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Premium Banner */}
+      <div className="px-5 pt-5 pb-6">
+        <div className="relative h-40 rounded-[20px] overflow-hidden shadow-xl">
+          <img 
+            src={logo} 
+            alt="Banner" 
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-slate-800 bg-opacity-75" />
+          <div className="absolute inset-0 flex flex-col items-center justify-end pb-5">
+            <h2 className="text-xl font-light text-white mb-2 tracking-wide text-center">
+              Welcome to Your Journey
+            </h2>
+            <div className="w-12 h-px bg-amber-600 mb-2" />
+            <p className="text-xs text-white opacity-90 tracking-widest uppercase font-medium">
+              Choose your path to wellness
+            </p>
+          </div>
+        </div>
       </div>
 
-        {/* Navigation Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* Main Content */}
+      <div className="flex-1 px-5 pb-3">
+        {/* Section Header */}
+        <div className="flex items-center mb-5">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-[10px] font-bold text-gray-400 tracking-[1.5px] mx-3">
+            SELECT ACTIVITY
+          </span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+
+        {/* Button Grid - 2x2 */}
+        <div className="grid grid-cols-2 gap-3.5 mb-4">
           {navButtons.map((button) => {
             const Icon = button.icon;
             return (
-              <Card
+              <div
                 key={button.text}
-                className={`cursor-pointer ${button.bgColor} shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 rounded-2xl border-0 ${button.shadowColor}`}
                 onClick={() => navigate(button.route)}
+                className="relative cursor-pointer bg-white rounded-[18px] border-2 border-gray-100 shadow-md hover:shadow-xl transition-all duration-300 hover:scale-[1.02] p-5"
               >
-                <CardContent className="p-6 flex flex-col items-center justify-center gap-3 text-center min-h-[140px]">
-                  <div className={`p-4 rounded-full bg-white bg-opacity-20 backdrop-blur-sm shadow-lg flex items-center justify-center`}>
-                    <Icon className={`h-8 w-8 ${button.textColor}`} />
-                  </div>
-                  <h3 className={`text-lg font-bold ${button.textColor} drop-shadow-sm`}>{button.text}</h3>
-                </CardContent>
-              </Card>
-          );
-        })}
+                {/* Icon Container */}
+                <div className={`w-14 h-14 rounded-full ${button.bgColor} border-2 ${button.borderColor} flex items-center justify-center mb-3 shadow-sm mx-auto`}>
+                  <Icon className={`h-7 w-7 ${button.iconColor}`} />
+                </div>
+                
+                {/* Button Text */}
+                <h3 className="text-[15px] font-semibold text-slate-800 mb-1 tracking-wide text-center">
+                  {button.text}
+                </h3>
+                
+                {/* Subtext */}
+                <p className="text-[10px] text-gray-500 text-center tracking-wide font-medium">
+                  {getSubtext(button.text)}
+                </p>
+                
+                {/* Bottom Accent */}
+                <div className="absolute bottom-0 left-[30%] right-[30%] h-0.75 bg-amber-600 rounded-t-md" />
+              </div>
+            );
+          })}
         </div>
+      </div>
+
+      {/* Elegant Logout Button */}
+      <div className="px-5 pt-2 pb-5">
+        <button
+          onClick={handleLogout}
+          className="w-full h-16 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 text-[15px] tracking-wide border border-slate-700 flex items-center justify-center gap-2"
+        >
+          <LogOut className="h-5 w-5" />
+          Sign Out
+        </button>
       </div>
     </div>
   );
