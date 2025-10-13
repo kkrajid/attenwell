@@ -9,8 +9,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import apiService from "@/services/api";
 import Webcam from "react-webcam";
-import * as tf from "@tensorflow/tfjs";
-import * as faceLandmarksDetection from "@tensorflow-models/face-landmarks-detection";
+import * as faceapi from "face-api.js";
 import logo from "@/assets/attenwell-logo.jpg";
 
 const Focus = () => {
@@ -48,6 +47,11 @@ const Focus = () => {
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [noFaceDetectedTime, setNoFaceDetectedTime] = useState(0);
   const [lastFaceDetectionTime, setLastFaceDetectionTime] = useState(Date.now());
+  const [emotion, setEmotion] = useState(null);
+  const [attentionLevel, setAttentionLevel] = useState(0);
+  const [postureScore, setPostureScore] = useState(0);
+  const [useNativeVideo, setUseNativeVideo] = useState(false);
+  const nativeVideoRef = useRef(null);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -85,26 +89,24 @@ const Focus = () => {
 
     const loadFaceDetectionModel = async () => {
       try {
-        console.log("Loading face detection model...");
-        toast.info("Loading face detection AI model...");
-        await tf.ready();
-        const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
-        const detectorConfig = {
-          runtime: 'tfjs',
-          refineLandmarks: false,
-          maxFaces: 1,
-          modelUrl: undefined,
-          enableSmoothing: true,
-          enableSegmentation: false
-        };
-        faceDetectorRef.current = await faceLandmarksDetection.createDetector(model, detectorConfig);
+        console.log("Loading face-api.js models...");
+        toast.info("Loading AI face detection models...");
+
+        const MODEL_URL = '/models';
+
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        ]);
+
         setIsModelLoaded(true);
-        console.log("Face detection model loaded successfully");
-        toast.success("Face detection model ready!");
+        console.log("Face-api.js models loaded successfully");
+        toast.success("AI face detection ready!");
       } catch (error) {
-        console.error("Error loading face detection model:", error);
+        console.error("Error loading face detection models:", error);
         setIsModelLoaded(false);
-        toast.error("Failed to load face detection model. Using fallback detection.");
+        toast.error("Failed to load face detection models. Using fallback detection.");
       }
     };
 
@@ -257,8 +259,8 @@ const Focus = () => {
 
   const startCamera = async () => {
     try {
-      console.log("Starting camera with Webcam component...");
-      
+      console.log("Starting camera...");
+
       const isSecure = window.location.protocol === 'https:' ||
                        window.location.hostname === 'localhost' ||
                        window.location.hostname === '127.0.0.1' ||
@@ -267,14 +269,70 @@ const Focus = () => {
                        window.location.hostname.startsWith('172.');
 
       console.log("Connection secure:", isSecure);
+      console.log("Protocol:", window.location.protocol);
+      console.log("Hostname:", window.location.hostname);
 
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      if (isMobile) {
-        toast.info("📱 Mobile camera mode activated");
+
+      // Check if HTTPS is required but not being used
+      if (isMobile && !isSecure) {
+        toast.error("⚠️ HTTPS required for mobile camera. Please use a secure connection.");
+        console.error("Mobile device detected but not using secure connection");
+        setCameraEnabled(false);
+        return;
       }
 
-      setCameraEnabled(true);
-      
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error("❌ Camera API not supported on this browser");
+        console.error("getUserMedia not supported");
+        setCameraEnabled(false);
+        return;
+      }
+
+      if (isMobile) {
+        toast.info("📱 Mobile camera mode - using native video");
+        setUseNativeVideo(true);
+      }
+
+      // Try to start native video stream directly for mobile
+      if (isMobile) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user',
+              width: { min: 320, ideal: 640, max: 1280 },
+              height: { min: 240, ideal: 480, max: 720 }
+            },
+            audio: false
+          });
+
+          if (nativeVideoRef.current) {
+            nativeVideoRef.current.srcObject = stream;
+            await nativeVideoRef.current.play();
+            setCameraEnabled(true);
+            toast.success("📹 Camera started!");
+            setTimeout(() => startFaceDetectionSimulation(), 1500);
+          }
+        } catch (err) {
+          console.error("Native video error:", err);
+          if (err.name === 'NotAllowedError') {
+            toast.error("❌ Camera permission denied. Please allow camera access in browser settings.");
+          } else if (err.name === 'NotFoundError') {
+            toast.error("❌ No camera found on this device");
+          } else if (err.name === 'NotReadableError') {
+            toast.error("❌ Camera is being used by another app");
+          } else {
+            toast.error("❌ Camera error: " + err.message);
+          }
+          setCameraEnabled(false);
+          setUseNativeVideo(false);
+        }
+      } else {
+        // Desktop: use Webcam component
+        setCameraEnabled(true);
+      }
+
     } catch (error) {
       console.error("Camera error:", error);
       if (error.name === 'NotAllowedError') {
@@ -283,9 +341,10 @@ const Focus = () => {
         toast.error("❌ No camera found");
         setFaceDetected(true);
       } else {
-        toast.error("❌ Camera error");
+        toast.error("❌ Camera error: " + error.message);
       }
       setCameraEnabled(false);
+      setUseNativeVideo(false);
     }
   };
 
@@ -294,36 +353,105 @@ const Focus = () => {
       clearInterval(detectionIntervalRef.current);
     }
 
-    if (faceDetectorRef.current && videoRef.current) {
+    const hasVideo = useNativeVideo ? nativeVideoRef.current : (videoRef.current && videoRef.current.video);
+
+    if (isModelLoaded && hasVideo) {
       const detectFaces = async () => {
         try {
-          if (!videoRef.current || !faceDetectorRef.current) return;
+          const videoElement = useNativeVideo ? nativeVideoRef.current : (videoRef.current ? videoRef.current.video : null);
+          if (!videoElement || videoElement.videoWidth === 0 || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) return;
 
-          const videoElement = videoRef.current.video;
-          if (!videoElement || videoElement.videoWidth === 0) return;
+          // Detect faces with face-api.js
+          const detections = await faceapi
+            .detectAllFaces(videoElement, new faceapi.TinyFaceDetectorOptions({
+              inputSize: 224,
+              scoreThreshold: 0.5
+            }))
+            .withFaceLandmarks()
+            .withFaceExpressions();
 
-          const faces = await faceDetectorRef.current.estimateFaces(videoElement, {
-            flipHorizontal: false,
-            predictIrisesAndPupils: false,
-            refineLandmarks: false
-          });
-
-          const isDetected = faces && faces.length > 0;
+          const isDetected = detections && detections.length > 0;
           const currentTime = Date.now();
-          
+
           if (isDetected) {
             setFaceDetected(true);
             setNoFaceDetectedTime(0);
             setLastFaceDetectionTime(currentTime);
+
+            // Extract emotion
+            const detection = detections[0];
+            const expressions = detection.expressions;
+            const highestEmotion = Object.keys(expressions).reduce((a, b) =>
+              expressions[a] > expressions[b] ? a : b
+            );
+            setEmotion(highestEmotion);
+
+            // Calculate basic attention metrics
+            const landmarks = detection.landmarks.positions;
+
+            // Simple head pose estimation (yaw from eye positions)
+            const leftEye = landmarks[36];
+            const rightEye = landmarks[45];
+            const nose = landmarks[30];
+
+            if (leftEye && rightEye && nose) {
+              const eyeCenter = (leftEye.x + rightEye.x) / 2;
+              const yaw = Math.abs(nose.x - eyeCenter);
+              const isLookingForward = yaw < 40;
+
+              // Simple posture score (0-100)
+              const posture = Math.max(0, 100 - yaw * 2);
+              setPostureScore(Math.round(posture));
+
+              // Simple attention level based on emotion and posture
+              const emotionScore = ['neutral', 'happy', 'surprised'].includes(highestEmotion) ? 100 : 50;
+              const attention = Math.round(emotionScore * 0.5 + posture * 0.5);
+              setAttentionLevel(attention);
+
+              // Draw detection on canvas
+              if (canvasRef.current) {
+                const canvas = canvasRef.current;
+                const displaySize = { width: videoElement.videoWidth, height: videoElement.videoHeight };
+                faceapi.matchDimensions(canvas, displaySize);
+
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                const context = canvas.getContext('2d');
+                context.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw face box
+                const box = resizedDetections[0].detection.box;
+                context.strokeStyle = isLookingForward ? '#00ff00' : '#ff9900';
+                context.lineWidth = 3;
+                context.strokeRect(box.x, box.y, box.width, box.height);
+
+                // Draw status text
+                context.font = 'bold 16px Arial';
+                context.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                context.fillRect(box.x, box.y - 40, 180, 35);
+                context.fillStyle = isLookingForward ? '#00ff00' : '#ff9900';
+                context.fillText(
+                  isLookingForward ? '✓ FOCUSED' : '⚠ LOOK FORWARD',
+                  box.x + 10,
+                  box.y - 15
+                );
+              }
+            }
           } else {
             setFaceDetected(false);
+            setEmotion(null);
             const timeSinceLastDetection = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
             setNoFaceDetectedTime(timeSinceLastDetection);
+
+            // Clear canvas
+            if (canvasRef.current) {
+              const context = canvasRef.current.getContext('2d');
+              context.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+            }
           }
 
           if (!isDetected && currentMode === "study") {
             const noFaceTime = Math.floor((currentTime - lastFaceDetectionTime) / 1000);
-            
+
             if (noFaceTime >= 5 && noFaceTime < 8) {
               playWarningSound();
               toast.warning("⚠️ No face detected", { duration: 3000 });
@@ -340,13 +468,14 @@ const Focus = () => {
         }
       };
 
-      detectionIntervalRef.current = setInterval(detectFaces, 1000);
+      detectionIntervalRef.current = setInterval(detectFaces, 500);
       setTimeout(detectFaces, 1500);
     } else {
+      // Fallback simulation
       detectionIntervalRef.current = setInterval(() => {
         const isDetected = Math.random() > 0.1;
         const currentTime = Date.now();
-        
+
         if (isDetected) {
           setFaceDetected(true);
           setNoFaceDetectedTime(0);
@@ -366,8 +495,18 @@ const Focus = () => {
         clearInterval(detectionIntervalRef.current);
         detectionIntervalRef.current = null;
       }
+
+      // Stop native video stream if using it
+      if (nativeVideoRef.current && nativeVideoRef.current.srcObject) {
+        const stream = nativeVideoRef.current.srcObject;
+        const tracks = stream.getTracks();
+        tracks.forEach(track => track.stop());
+        nativeVideoRef.current.srcObject = null;
+      }
+
       setCameraEnabled(false);
       setFaceDetected(false);
+      setUseNativeVideo(false);
     } catch (error) {
       console.error("Error stopping camera:", error);
     }
@@ -812,27 +951,48 @@ const Focus = () => {
               <div className="relative bg-black aspect-video">
                 {cameraEnabled ? (
                   <>
-                    <Webcam
-                      ref={videoRef}
-                      audio={false}
-                      width={640}
-                      height={480}
-                      className="w-full h-full object-cover"
-                      onUserMedia={() => {
-                        toast.success("Camera started 📹");
-                        setTimeout(() => startFaceDetectionSimulation(), 1000);
-                      }}
-                      onUserMediaError={() => {
-                        toast.error("Camera failed");
-                        setCameraEnabled(false);
-                      }}
-                      videoConstraints={{
-                        facingMode: 'user',
-                        width: { min: 320, ideal: 640 },
-                        height: { min: 240, ideal: 480 }
-                      }}
-                      mirrored={true}
-                    />
+                    {useNativeVideo ? (
+                      <video
+                        ref={nativeVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover transform scale-x-[-1]"
+                        style={{ transform: 'scaleX(-1)' }}
+                      />
+                    ) : (
+                      <Webcam
+                        ref={videoRef}
+                        audio={false}
+                        width={640}
+                        height={480}
+                        className="w-full h-full object-cover"
+                        onUserMedia={() => {
+                          toast.success("Camera started 📹");
+                          setTimeout(() => startFaceDetectionSimulation(), 1000);
+                        }}
+                        onUserMediaError={(error) => {
+                          console.error("Webcam error:", error);
+                          if (error?.name === 'NotAllowedError' || error?.message?.includes('Permission')) {
+                            toast.error("❌ Camera permission denied. Please allow camera access.");
+                          } else if (error?.name === 'NotFoundError') {
+                            toast.error("❌ No camera found on this device");
+                          } else if (error?.name === 'NotReadableError' || error?.message?.includes('Could not start')) {
+                            toast.error("❌ Camera is being used by another app. Please close other apps.");
+                          } else {
+                            toast.error("❌ Camera failed: " + (error?.message || "Unknown error"));
+                          }
+                          setCameraEnabled(false);
+                        }}
+                        videoConstraints={{
+                          facingMode: 'user',
+                          width: { min: 320, ideal: 640, max: 1280 },
+                          height: { min: 240, ideal: 480, max: 720 },
+                          aspectRatio: { ideal: 1.33333 }
+                        }}
+                        mirrored={true}
+                      />
+                    )}
                     <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" />
                     <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-500 text-white px-2 py-1 rounded-full text-xs">
                       <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
@@ -858,6 +1018,35 @@ const Focus = () => {
                 )}
               </div>
             </div>
+
+            {/* AI Metrics Display */}
+            {faceDetected && isModelLoaded && (
+              <div className="bg-white rounded-[18px] border-2 border-blue-100 shadow-md p-4">
+                <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <span>🤖</span> AI Analysis
+                </h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                    <p className="text-xs text-purple-600 mb-1">Emotion</p>
+                    <p className="text-sm font-bold text-purple-800 capitalize">
+                      {emotion || 'detecting...'}
+                    </p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                    <p className="text-xs text-green-600 mb-1">Attention</p>
+                    <p className="text-sm font-bold text-green-800">
+                      {attentionLevel}%
+                    </p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                    <p className="text-xs text-blue-600 mb-1">Posture</p>
+                    <p className="text-sm font-bold text-blue-800">
+                      {postureScore}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Face Warning */}
             {!faceDetected && currentMode === "study" && (
